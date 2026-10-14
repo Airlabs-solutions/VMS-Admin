@@ -8,8 +8,8 @@ const buttonStyles = cva(
   {
     variants: {
       variant: {
-        primary: "bg-brand text-white hover:bg-brand-strong active:bg-brand-deep",
-        secondary: "border border-line bg-card text-ink hover:border-brand-mid hover:bg-canvas active:bg-brand-soft/20",
+        primary: "bg-brand text-ink hover:bg-brand-strong active:bg-brand-mid",
+        secondary: "border border-line bg-card text-ink hover:border-brand hover:bg-brand-soft",
         danger: "bg-status-danger text-white hover:opacity-90",
         ghost: "text-ink hover:bg-canvas",
       },
@@ -27,7 +27,11 @@ export function Button({
 }
 
 export const controlClass =
-  "h-10 w-full rounded-md border border-line bg-card px-3 text-sm text-ink transition duration-200 ease-out outline-none placeholder:text-muted hover:border-brand-mid focus:border-brand focus:ring-2 focus:ring-brand/15 disabled:cursor-not-allowed disabled:bg-canvas disabled:text-muted";
+  "h-10 w-full rounded-md border border-line bg-card px-3 text-sm text-ink transition duration-200 ease-out outline-none placeholder:text-muted hover:border-brand-mid focus:border-brand focus:ring-2 focus:ring-brand/30 disabled:cursor-not-allowed disabled:bg-canvas disabled:text-muted";
+
+export const linkClass = "font-medium text-brand-deep hover:text-ink";
+
+export const surfaceClass = "rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)]";
 
 export function Field({ label, error, hint, children }: { label: string; error?: string; hint?: string; children: ReactNode }) {
   return (
@@ -60,7 +64,7 @@ export function PageHeader({ title, description, children }: { title: string; de
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">{title}</h1>
+        <h1 className="text-[1.65rem] leading-tight font-semibold tracking-tight text-ink">{title}</h1>
         {description ? <p className="mt-1 max-w-3xl text-sm leading-6 text-muted">{description}</p> : null}
       </div>
       <div className="flex flex-wrap gap-2">{children}</div>
@@ -68,8 +72,43 @@ export function PageHeader({ title, description, children }: { title: string; de
   );
 }
 
+export function Tabs({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ id: string; label: string }>;
+  onChange: (id: string) => void;
+}) {
+  return (
+    <div className="flex gap-2 overflow-x-auto" role="tablist" aria-label={label}>
+      {options.map((option) => {
+        const selected = value === option.id;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            className={cn(
+              "h-9 shrink-0 rounded-md px-3 text-sm font-medium transition duration-150",
+              selected ? "bg-brand text-ink" : "border border-line bg-card text-ink hover:border-brand hover:bg-brand-soft",
+            )}
+            onClick={() => onChange(option.id)}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Panel({ children, className }: { children: ReactNode; className?: string }) {
-  return <section className={cn("rounded-lg border border-line bg-card shadow-[0_1px_2px_rgba(28,36,52,0.05)]", className)}>{children}</section>;
+  return <section className={cn("rounded-lg border border-line bg-card shadow-[0_1px_2px_rgba(17,22,16,0.04)]", className)}>{children}</section>;
 }
 
 export function StateMessage({ children }: { children: string }) {
@@ -115,7 +154,7 @@ export function DataTable({ columns, rows }: { columns: string[]; rows: ReactNod
     <div className="rounded-lg border border-line bg-card">
       <div className="hidden overflow-x-auto md:block">
         <table className="w-full min-w-[720px] border-collapse text-left text-[13px]">
-          <thead className="bg-canvas text-xs tracking-wide text-muted uppercase">
+          <thead className="bg-brand-soft text-xs tracking-wide text-brand-deep uppercase">
             <tr>
               {columns.map((column) => (
                 <th key={column} className="px-4 py-3 font-medium">

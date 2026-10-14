@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "./theme.css";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 html,
 body,
 #root {
@@ -47,7 +49,7 @@ textarea {
 }
 
 .admin-shell {
-  --sidebar-width: 248px;
+  --sidebar-width: 240px;
 }
 
 .admin-shell[data-collapsed="true"] {
@@ -64,6 +66,11 @@ textarea {
   .admin-shell > aside {
     width: var(--sidebar-width);
     transition: width 300ms ease-out, transform 300ms ease-out;
+  }
+
+  .admin-main {
+    min-height: 0;
+    height: 100%;
   }
 }
 

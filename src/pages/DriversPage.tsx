@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DateField } from "../components/DateField";
 import { Badge, Button, Field, PageHeader, SelectInput, StateMessage, TextInput } from "../components/ui";
 import { ApiError, api } from "../lib/api";
@@ -19,6 +19,7 @@ type Driver = {
   licenseExpiry: string | null;
   status: Status;
   fileIds: string[];
+  photoUrl?: string | null;
   assignedVehicle?: { id: string; plateNumber: string; name: string } | null;
 };
 
@@ -260,7 +261,7 @@ export function DriversPage() {
       <PageHeader title="Drivers">
         <Button onClick={mode === "add" ? closeForm : openAdd}>{mode === "add" ? "Close" : "Add driver"}</Button>
       </PageHeader>
-      <div className="mb-4 rounded-md border border-line bg-card p-4">
+      <div className="mb-4 rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)]">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <Field label="Search">
             <TextInput placeholder="Name, mobile, vehicle" value={search} onChange={(event) => setSearch(event.target.value)} />
@@ -301,7 +302,7 @@ export function DriversPage() {
         <div className="mt-3 flex items-center justify-between text-sm">
           <p className="text-muted">{filtered.length} {filtered.length === 1 ? "driver" : "drivers"}</p>
           {filtersOn ? (
-            <button type="button" className="text-accent" onClick={() => { setSearch(""); setStatusFilter(""); setIqamaFilter(""); setLicenseFilter(""); setVehicleFilter(""); }}>
+            <button type="button" className="text-brand-deep hover:text-ink" onClick={() => { setSearch(""); setStatusFilter(""); setIqamaFilter(""); setLicenseFilter(""); setVehicleFilter(""); }}>
               Clear filters
             </button>
           ) : null}
@@ -309,9 +310,12 @@ export function DriversPage() {
       </div>
 
       {mode ? (
-        <form onSubmit={onSubmit} className="mb-4 rounded-md border border-line bg-card p-4">
-          <h2 className="text-base font-semibold">{mode === "edit" ? "Edit driver" : "Add driver"}</h2>
+        <Dialog title={mode === "edit" ? "Edit driver" : "Add driver"} onClose={closeForm}>
+        <form onSubmit={onSubmit}>
           {mode === "edit" && editor.isLoading ? <StateMessage>Loading driver...</StateMessage> : null}
+          {mode === "edit" ? (
+            <DriverAvatar name={form.name || editor.data?.data.name || "Driver"} photoUrl={editor.data?.data.photoUrl} />
+          ) : null}
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <Field label="Name">
               <TextInput className={cn(fieldErrors.name && "border-status-danger")} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
@@ -366,7 +370,7 @@ export function DriversPage() {
           <div className="mt-4">
             <button
               type="button"
-              className="text-sm font-medium text-brand transition-colors duration-150 hover:text-brand-strong"
+              className="text-sm font-medium text-brand-deep transition-colors duration-150 hover:text-ink"
               aria-expanded={accessOpen}
               onClick={() => setAccessOpen((open) => !open)}
             >
@@ -376,7 +380,7 @@ export function DriversPage() {
               <label className="mt-3 flex items-start gap-3 rounded-lg border border-line bg-canvas p-3">
                 <input
                   type="checkbox"
-                  className="mt-1 h-4 w-4 accent-[#4B49AC]"
+                  className="mt-1 h-4 w-4 accent-brand"
                   checked={portalAccess}
                   onChange={(event) => {
                     setPortalAccess(event.target.checked);
@@ -425,6 +429,7 @@ export function DriversPage() {
             <Button type="button" variant="secondary" onClick={closeForm}>Cancel</Button>
           </div>
         </form>
+        </Dialog>
       ) : null}
 
       {drivers.isLoading ? <StateMessage>Loading drivers...</StateMessage> : null}
@@ -432,25 +437,22 @@ export function DriversPage() {
       {drivers.data && filtered.length === 0 ? <StateMessage>{drivers.data.data.length === 0 ? "No drivers yet." : "No drivers match these filters."}</StateMessage> : null}
       <ul className="space-y-3">
         {filtered.map((driver) => (
-          <li key={driver.id} className="rounded-md border border-line bg-card p-4">
+          <li key={driver.id} className="rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)]">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="font-semibold">{driver.name}</p>
-                <p className="mt-1 text-sm text-muted">{driver.mobileMasked}</p>
+              <div className="flex min-w-0 items-center gap-3">
+                <DriverAvatar name={driver.name} photoUrl={driver.photoUrl} />
+                <div className="min-w-0">
+                  <p className="font-semibold">{driver.name}</p>
+                  <p className="mt-1 text-sm text-muted">{driver.mobileMasked}</p>
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Badge code={driver.status.code} label={driver.status.label} />
-                <Button variant="secondary" onClick={() => setSelectedId(selectedId === driver.id ? "" : driver.id)}>
-                  {selectedId === driver.id ? "Hide info" : "Full info"}
+                <Button variant="secondary" onClick={() => { setConfirmId(""); setMode(null); setEditingId(""); setSelectedId(driver.id); }}>
+                  Full info
                 </Button>
                 <Button variant="secondary" onClick={() => openEdit(driver.id)}>Edit</Button>
-                {confirmId === driver.id ? (
-                  <Button variant="danger" disabled={remove.isPending} onClick={() => remove.mutate(driver.id)}>
-                    {remove.isPending ? "Deleting..." : "Confirm delete"}
-                  </Button>
-                ) : (
-                  <Button variant="secondary" onClick={() => setConfirmId(driver.id)}>Delete</Button>
-                )}
+                <Button variant="secondary" onClick={() => setConfirmId(driver.id)}>Delete</Button>
               </div>
             </div>
             <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
@@ -473,27 +475,55 @@ export function DriversPage() {
           </li>
         ))}
       </ul>
-      {detail.data && mode !== "edit" ? (
-        <div className="mt-4 rounded-md border border-line bg-card p-4 text-sm">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="font-semibold">{detail.data.data.name}</h2>
-            <button className="text-accent" type="button" onClick={() => setSelectedId("")}>Close</button>
-          </div>
-          <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-            <div><dt className="text-muted">Mobile</dt><dd>{detail.data.data.mobile}</dd></div>
-            <div><dt className="text-muted">Employee ID</dt><dd>{detail.data.data.employeeId || "Not set"}</dd></div>
-            <div><dt className="text-muted">Iqama number</dt><dd>{detail.data.data.iqamaNumber}</dd></div>
-            <div><dt className="text-muted">Iqama expiry</dt><dd>{formatDate(detail.data.data.iqamaExpiry)} ({detail.data.data.iqamaStatus.label})</dd></div>
-            <div><dt className="text-muted">License number</dt><dd>{detail.data.data.licenseNumber}</dd></div>
-            <div><dt className="text-muted">License</dt><dd>{detail.data.data.licenseType.label} · {formatDate(detail.data.data.licenseExpiry)} ({detail.data.data.licenseStatus.label})</dd></div>
-            <div><dt className="text-muted">Assigned vehicle</dt><dd>{detail.data.data.currentVehicle ? `${detail.data.data.currentVehicle.plateNumber} ${detail.data.data.currentVehicle.make} ${detail.data.data.currentVehicle.model}` : "Unassigned"}</dd></div>
-          </dl>
-          {(detail.data.data.fileIds ?? []).length > 0 ? (
-            <div className="mt-4 flex flex-wrap gap-3">
-              {detail.data.data.fileIds.map((id) => <DocThumb key={id} fileId={id} />)}
+      {selectedId && mode !== "edit" ? (
+        <Dialog title="Driver details" onClose={() => setSelectedId("")}>
+          {detail.isLoading ? <StateMessage>Loading driver...</StateMessage> : null}
+          {detail.isError ? <StateMessage>Could not load this driver.</StateMessage> : null}
+          {detail.data ? (
+            <div className="text-sm">
+              <div className="flex items-center gap-3">
+                <DriverAvatar name={detail.data.data.name} photoUrl={detail.data.data.photoUrl} size="h-20 w-20" />
+                <div>
+                  <p className="text-base font-semibold text-ink">{detail.data.data.name}</p>
+                  <div className="mt-1"><Badge code={detail.data.data.status.code} label={detail.data.data.status.label} /></div>
+                </div>
+              </div>
+              <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div><dt className="text-muted">Mobile</dt><dd className="mt-0.5 font-medium">{detail.data.data.mobile || "Not recorded"}</dd></div>
+                <div><dt className="text-muted">Employee ID</dt><dd className="mt-0.5 font-medium">{detail.data.data.employeeId || "Not set"}</dd></div>
+                <div><dt className="text-muted">Iqama number</dt><dd className="mt-0.5 font-medium">{detail.data.data.iqamaNumber || "Not recorded"}</dd></div>
+                <div><dt className="text-muted">Iqama expiry</dt><dd className="mt-0.5 flex flex-wrap items-center gap-2 font-medium">{formatDate(detail.data.data.iqamaExpiry)} <Badge code={detail.data.data.iqamaStatus.code} label={detail.data.data.iqamaStatus.label} /></dd></div>
+                <div><dt className="text-muted">License number</dt><dd className="mt-0.5 font-medium">{detail.data.data.licenseNumber || "Not recorded"}</dd></div>
+                <div><dt className="text-muted">License type</dt><dd className="mt-0.5 font-medium">{detail.data.data.licenseType.label}</dd></div>
+                <div><dt className="text-muted">License expiry</dt><dd className="mt-0.5 flex flex-wrap items-center gap-2 font-medium">{formatDate(detail.data.data.licenseExpiry)} <Badge code={detail.data.data.licenseStatus.code} label={detail.data.data.licenseStatus.label} /></dd></div>
+                <div><dt className="text-muted">Assigned vehicle</dt><dd className="mt-0.5 font-medium">{detail.data.data.currentVehicle ? `${detail.data.data.currentVehicle.plateNumber}, ${detail.data.data.currentVehicle.make} ${detail.data.data.currentVehicle.model}` : "Unassigned"}</dd></div>
+                <div><dt className="text-muted">Portal access</dt><dd className="mt-0.5 font-medium">{detail.data.data.portalAccess ? "Allowed" : "Off"}</dd></div>
+              </dl>
+              {(detail.data.data.fileIds ?? []).length > 0 ? (
+                <div className="mt-4 flex flex-wrap gap-3">
+                  {detail.data.data.fileIds.map((id) => <DocThumb key={id} fileId={id} />)}
+                </div>
+              ) : null}
+              <div className="mt-5 flex flex-wrap gap-2">
+                <Button type="button" onClick={() => openEdit(detail.data.data.id)}>Edit</Button>
+                <Button type="button" variant="secondary" onClick={() => setConfirmId(detail.data.data.id)}>Delete</Button>
+              </div>
             </div>
           ) : null}
-        </div>
+        </Dialog>
+      ) : null}
+      {confirmId ? (
+        <Dialog title="Confirm delete" onClose={() => { if (!remove.isPending) setConfirmId(""); }}>
+          <p className="text-sm leading-6 text-ink">
+            Delete {drivers.data?.data.find((driver) => driver.id === confirmId)?.name || "this driver"}? The driver record will be removed.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Button variant="danger" disabled={remove.isPending} onClick={() => remove.mutate(confirmId)}>
+              {remove.isPending ? "Deleting..." : "Confirm delete"}
+            </Button>
+            <Button type="button" variant="secondary" disabled={remove.isPending} onClick={() => setConfirmId("")}>Cancel</Button>
+          </div>
+        </Dialog>
       ) : null}
     </div>
   );
@@ -526,6 +556,54 @@ function DocThumb({ fileId, onRemove }: { fileId: string; onRemove?: () => void 
       {onRemove ? <button type="button" className="mt-1 text-xs text-status-danger" onClick={onRemove}>Remove</button> : null}
     </div>
   );
+}
+
+function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previous;
+    };
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-3 sm:items-center sm:p-6" onMouseDown={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="max-h-[min(92vh,860px)] w-full max-w-2xl overflow-y-auto rounded-lg border border-line bg-card p-4 shadow-[0_16px_40px_rgba(17,22,16,0.16)] sm:p-5"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-base font-semibold text-ink">{title}</h2>
+          <button type="button" className="h-9 shrink-0 rounded-md px-3 text-sm font-medium text-brand-deep hover:bg-brand-soft hover:text-ink" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <div className="mt-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function DriverAvatar({ name, photoUrl, size = "h-14 w-14" }: { name: string; photoUrl?: string | null; size?: string }) {
+  const letters = name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("") || "DR";
+  if (photoUrl) {
+    return <img src={photoUrl} alt="" className={`${size} shrink-0 rounded-md object-cover`} />;
+  }
+  return <span className={`grid ${size} shrink-0 place-items-center rounded-md bg-brand text-sm font-semibold text-ink`}>{letters}</span>;
 }
 
 function FieldHint({ message }: { message?: string }) {

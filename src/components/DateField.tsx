@@ -210,7 +210,7 @@ export function DateField({
                   aria-current={today ? "date" : undefined}
                   className={cn(
                     "h-8 rounded-md text-sm transition-colors duration-150 ease-out",
-                    active ? "bg-brand font-medium text-white" : "hover:bg-brand-soft/30",
+                    active ? "bg-brand font-medium text-ink" : "hover:bg-brand-soft",
                     !active && inMonth && "text-ink",
                     !active && !inMonth && "text-muted",
                     !active && today && "ring-1 ring-brand ring-inset",
@@ -232,7 +232,7 @@ export function DateField({
           <div className="mt-3 flex items-center justify-between border-t border-line pt-2">
             <button
               type="button"
-              className="h-8 rounded-md px-2 text-sm font-medium text-brand transition-colors duration-150 hover:bg-brand/10"
+              className="h-8 rounded-md px-2 text-sm font-medium text-brand-deep transition-colors duration-150 hover:bg-brand/10"
               onClick={() => choose(new Date())}
             >
               Today

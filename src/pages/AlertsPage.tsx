@@ -1,9 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Badge, Button, DataTable, EmptyState, ErrorState, PageHeader, Panel, Skeleton } from "../components/ui";
+import { Badge, Button, DataTable, EmptyState, ErrorState, PageHeader, Panel, Skeleton, Tabs } from "../components/ui";
 import { api } from "../lib/api";
-import { cn } from "../lib/cn";
 import { formatDate } from "../lib/format";
 import type { ListResponse, Status } from "../types";
 
@@ -18,7 +17,8 @@ type Alert = {
 };
 type Rule = { type: string; offsets: number[]; enabled: boolean; recipients: string[] };
 type Sms = { id: string; recipientMasked: string; body: string; status: Status; sentAt: string | null; error: string | null };
-type AlertView = "open" | "dismissed" | "all";
+type AlertView = "open" | "overdue" | "dismissed" | "all";
+type Tone = "overdue" | "soon" | "later" | "none";
 
 const typeLabels: Record<string, string> = {
   istimara_expiry: "Istimara",
@@ -45,6 +45,36 @@ function typeLabel(type: string) {
   return typeLabels[type] ?? "Alert";
 }
 
+function dayKey(value: string | Date) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Riyadh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(value));
+}
+
+function toneFor(dueDate: string | null): Tone {
+  if (!dueDate) return "none";
+  const due = dayKey(dueDate);
+  const today = dayKey(new Date());
+  if (due < today) return "overdue";
+  const soon = new Date();
+  soon.setDate(soon.getDate() + 7);
+  if (due <= dayKey(soon)) return "soon";
+  return "later";
+}
+
+function duePhrase(dueDate: string | null) {
+  if (!dueDate) return "No due date";
+  const date = formatDate(dueDate);
+  if (!date) return "No due date";
+  const tone = toneFor(dueDate);
+  if (tone === "overdue") return `Overdue, due ${date}`;
+  if (dayKey(dueDate) === dayKey(new Date())) return `Due today, ${date}`;
+  return `Due ${date}`;
+}
+
 function formatOffsets(type: string, offsets: number[]) {
   if (type === "violation_created") return "When a violation is logged";
   const sorted = [...offsets].sort((a, b) => b - a);
@@ -59,14 +89,12 @@ function formatRecipients(recipients: string[]) {
   return recipients.map((recipient) => recipientLabels[recipient] ?? "Company admin").join(", ");
 }
 
-function whenLine(alert: Alert) {
-  const due = formatDate(alert.dueDate);
-  const raised = formatDate(alert.createdAt);
-  if (due && raised) return `Due ${due}, raised ${raised}`;
-  if (due) return `Due ${due}`;
-  if (raised) return `Raised ${raised}`;
-  return "";
-}
+const toneClass: Record<Tone, string> = {
+  overdue: "border-line border-l-4 border-l-status-danger bg-card",
+  soon: "border-line border-l-4 border-l-status-warn bg-card",
+  later: "border-line bg-card",
+  none: "border-line bg-card",
+};
 
 export function AlertsPage() {
   const client = useQueryClient();
@@ -87,41 +115,60 @@ export function AlertsPage() {
   const counts = useMemo(
     () => ({
       open: rows.filter((alert) => alert.status.code === "open").length,
+      overdue: rows.filter((alert) => alert.status.code === "open" && toneFor(alert.dueDate) === "overdue").length,
       dismissed: rows.filter((alert) => alert.status.code === "dismissed").length,
       all: rows.length,
     }),
     [rows],
   );
-  const visible = rows.filter((alert) => view === "all" || alert.status.code === view);
+  const visible = rows
+    .filter((alert) => {
+      if (view === "all") return true;
+      if (view === "dismissed") return alert.status.code === "dismissed";
+      if (alert.status.code !== "open") return false;
+      if (view === "overdue") return toneFor(alert.dueDate) === "overdue";
+      return true;
+    })
+    .sort((a, b) => {
+      const rank = (alert: Alert) => {
+        if (alert.status.code !== "open") return 3;
+        const tone = toneFor(alert.dueDate);
+        if (tone === "overdue") return 0;
+        if (tone === "soon") return 1;
+        return 2;
+      };
+      const byRank = rank(a) - rank(b);
+      if (byRank !== 0) return byRank;
+      const aDue = a.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+      const bDue = b.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+      return aDue - bDue;
+    });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <PageHeader title="Alerts" description="Due dates, maintenance, EMI, and violations. Dismiss an alert after it is handled." />
 
-      <section>
-        <div className="mb-3 flex flex-wrap gap-2" role="tablist" aria-label="Alert status">
-          {(
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Summary label="Open" value={alerts.isLoading ? null : counts.open} hint="Still need a look" />
+        <Summary label="Overdue" value={alerts.isLoading ? null : counts.overdue} hint="Past the due date" />
+        <Summary label="Dismissed" value={alerts.isLoading ? null : counts.dismissed} hint="Already handled" />
+        <Summary label="All" value={alerts.isLoading ? null : counts.all} hint="In this list" />
+      </section>
+
+      <section className="space-y-3">
+        <Tabs
+          label="Alert status"
+          value={view}
+          options={(
             [
               ["open", "Open"],
+              ["overdue", "Overdue"],
               ["dismissed", "Dismissed"],
               ["all", "All"],
             ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={view === id}
-              className={cn(
-                "h-9 rounded-md px-3 text-sm font-medium transition duration-200 ease-out",
-                view === id ? "bg-brand text-white" : "border border-line bg-card text-ink hover:border-brand-mid",
-              )}
-              onClick={() => setView(id)}
-            >
-              {label} ({counts[id]})
-            </button>
-          ))}
-        </div>
+          ).map(([id, label]) => ({ id, label: `${label} (${counts[id]})` }))}
+          onChange={(id) => setView(id as AlertView)}
+        />
 
         {alerts.isLoading ? <Skeleton className="h-28 w-full" /> : null}
         {alerts.isError ? (
@@ -129,32 +176,36 @@ export function AlertsPage() {
         ) : null}
         {alerts.data && visible.length === 0 ? (
           <EmptyState
-            title={view === "open" ? "No open alerts." : view === "dismissed" ? "No dismissed alerts." : "No alerts yet."}
+            title={view === "open" ? "No open alerts." : view === "overdue" ? "Nothing is overdue." : view === "dismissed" ? "No dismissed alerts." : "No alerts yet."}
             detail={view === "open" ? "New alerts appear when a due date is reached." : undefined}
           />
         ) : null}
         {visible.length > 0 ? (
-          <Panel>
-            <ul>
-              {visible.map((alert) => (
-                <li key={alert.id} className="grid gap-3 border-t border-line px-4 py-3 first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-medium tracking-wide text-muted uppercase">{typeLabel(alert.type)}</p>
-                    <p className="mt-1 text-sm leading-6 text-ink">{alert.message}</p>
-                    <p className="mt-1 text-xs text-muted">
-                      {whenLine(alert)}
+          <ul className="grid gap-3">
+            {visible.map((alert) => {
+              const tone = alert.status.code === "open" ? toneFor(alert.dueDate) : "none";
+              return (
+                <li key={alert.id} className={`rounded-lg border p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)] ${toneClass[tone]}`}>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-muted">{typeLabel(alert.type)}</p>
+                      <p className="mt-1 text-sm font-medium leading-6 text-ink">{alert.message}</p>
+                    </div>
+                    <Badge code={alert.status.code === "dismissed" ? undefined : tone === "overdue" ? "overdue" : tone === "soon" ? "due_soon" : "open"} label={alert.status.code === "dismissed" ? "Dismissed" : tone === "overdue" ? "Overdue" : tone === "soon" ? "Due soon" : "Open"} />
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-xs leading-5 text-muted">
+                      {duePhrase(alert.dueDate)}
+                      {formatDate(alert.createdAt) ? `, raised ${formatDate(alert.createdAt)}` : ""}
                       {alert.vehicleId ? (
                         <>
-                          {whenLine(alert) ? ", " : null}
-                          <Link className="font-medium text-brand" to={`/vehicles/${alert.vehicleId}`}>
+                          {". "}
+                          <Link className="font-medium text-brand-deep hover:text-ink" to={`/vehicles/${alert.vehicleId}`}>
                             View vehicle
                           </Link>
                         </>
                       ) : null}
                     </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge code={alert.status.code} label={alert.status.code === "dismissed" ? "Dismissed" : "Open"} />
                     {alert.status.code === "open" ? (
                       <Button
                         variant="secondary"
@@ -167,9 +218,9 @@ export function AlertsPage() {
                     ) : null}
                   </div>
                 </li>
-              ))}
-            </ul>
-          </Panel>
+              );
+            })}
+          </ul>
         ) : null}
       </section>
 
@@ -181,33 +232,37 @@ export function AlertsPage() {
           <ErrorState title="Could not load alert timing." detail="The rules did not come back. Try again in a moment." onRetry={() => void rules.refetch()} />
         ) : null}
         {rules.data ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            {rules.data.data.map((rule) => (
-              <Panel key={rule.type} className="p-4">
-                <div className="flex items-start justify-between gap-3">
+          <Panel>
+            <ul>
+              {rules.data.data.map((rule) => (
+                <li key={rule.type} className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-3 first:border-t-0">
                   <div className="min-w-0">
-                    <h3 className="text-sm font-semibold text-ink">{typeLabel(rule.type)}</h3>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-sm font-semibold text-ink">{typeLabel(rule.type)}</h3>
+                      <Badge code={rule.enabled ? "active" : "inactive"} label={rule.enabled ? "On" : "Off"} />
+                    </div>
                     <p className="mt-1 text-sm leading-6 text-ink">{formatOffsets(rule.type, rule.offsets)}</p>
-                    <p className="mt-1 text-xs text-muted">Sent to {formatRecipients(rule.recipients)}</p>
+                    <p className="mt-0.5 text-xs text-muted">Sent to {formatRecipients(rule.recipients)}</p>
                   </div>
                   <Button
-                    variant={rule.enabled ? "primary" : "secondary"}
+                    variant={rule.enabled ? "secondary" : "primary"}
                     className="h-8 shrink-0"
                     aria-pressed={rule.enabled}
                     disabled={toggle.isPending && toggle.variables?.type === rule.type}
                     onClick={() => toggle.mutate(rule)}
                   >
-                    {rule.enabled ? "On" : "Off"}
+                    {rule.enabled ? "Turn off" : "Turn on"}
                   </Button>
-                </div>
-              </Panel>
-            ))}
-          </div>
+                </li>
+              ))}
+            </ul>
+          </Panel>
         ) : null}
       </section>
 
       <section>
-        <h2 className="mb-3 text-lg font-semibold tracking-tight text-ink">SMS log</h2>
+        <h2 className="text-lg font-semibold tracking-tight text-ink">SMS log</h2>
+        <p className="mt-1 mb-3 text-sm text-muted">Recent texts sent for these alerts. Phone numbers are masked.</p>
         {sms.isLoading ? <Skeleton className="h-24 w-full" /> : null}
         {sms.isError ? (
           <ErrorState title="Could not load the SMS log." detail="The message list did not come back. Try again in a moment." onRetry={() => void sms.refetch()} />
@@ -228,6 +283,16 @@ export function AlertsPage() {
           />
         ) : null}
       </section>
+    </div>
+  );
+}
+
+function Summary({ label, value, hint }: { label: string; value: number | null; hint: string }) {
+  return (
+    <div className="rounded-lg border border-line bg-card px-4 py-3 shadow-[0_1px_2px_rgba(17,22,16,0.04)]">
+      <p className="text-xs font-medium text-muted">{label}</p>
+      <p className="mt-1 text-2xl font-semibold tracking-tight text-ink tabular-nums">{value == null ? "..." : value.toLocaleString("en-US")}</p>
+      <p className="mt-1 text-xs text-muted">{hint}</p>
     </div>
   );
 }

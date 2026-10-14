@@ -47,7 +47,7 @@ export function PlatformPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Companies" />
-      <form onSubmit={onSubmit} className="grid gap-3 rounded-md border border-line bg-card p-4 md:grid-cols-3">
+      <form onSubmit={onSubmit} className="grid gap-3 rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)] md:grid-cols-3">
         <Field label="Company name"><TextInput value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></Field>
         <Field label="Max vehicles"><TextInput value={form.maxVehicles} onChange={(event) => setForm({ ...form, maxVehicles: event.target.value })} required /></Field>
         <Field label="SMS credits"><TextInput value={form.smsCredits} onChange={(event) => setForm({ ...form, smsCredits: event.target.value })} required /></Field>

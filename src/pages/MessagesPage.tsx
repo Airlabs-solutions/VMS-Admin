@@ -1,34 +1,72 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Button, Field, PageHeader, SelectInput, StateMessage, TextArea, TextInput } from "../components/ui";
+import { ArrowLeft, Camera, FileText, Folder, Mic, Paperclip, Search, Send, Square, Users, X } from "lucide-react";
+import { FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "../lib/api";
+import { cn } from "../lib/cn";
 import type { ListResponse } from "../types";
 
-type DriverOption = { id: string; name: string };
+type DriverOption = {
+  id: string;
+  name: string;
+  photoUrl?: string | null;
+  status?: { code: string; label: string };
+};
+
 type Message = {
   id: string;
   driverId: string;
   driverName: string;
+  senderRole?: "admin" | "driver";
   body: string;
   fileIds: string[];
-  delivered?: boolean;
+  broadcastId?: string | null;
+  delivered?: boolean | number;
+  sent?: number;
   createdAt: string | null;
 };
 
-const empty = { driverId: "", body: "", fileIds: [] as string[] };
+type FileMeta = { url: string; mime?: string; name?: string };
 
-function formatWhen(value: string | null) {
+const ALL = "all";
+const MAX_BYTES = 10 * 1024 * 1024;
+const EDIT_MS = 2 * 60 * 1000;
+
+function canEditMessage(createdAt: string | null, now: number) {
+  if (!createdAt) return false;
+  const sent = new Date(createdAt).getTime();
+  if (Number.isNaN(sent)) return false;
+  return now - sent < EDIT_MS;
+}
+
+function formatWhen(value: string | null, withDate = false) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Riyadh",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  const day = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Riyadh", day: "2-digit", month: "2-digit", year: "numeric" });
+  const time = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Riyadh", hour: "2-digit", minute: "2-digit" });
+  const today = day.format(new Date());
+  if (!withDate && day.format(date) === today) return time.format(date);
+  return `${day.format(date)} ${time.format(date)}`;
+}
+
+function preview(message: Message | undefined) {
+  if (!message) return "No messages yet";
+  if (message.body.trim()) return message.body.trim();
+  if (message.fileIds?.length) return "Attachment";
+  return "No messages yet";
+}
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).slice(0, 2);
+  return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "D";
+}
+
+function fileAllowed(file: File) {
+  if (file.size > MAX_BYTES) return "Each file must be 10 MB or smaller.";
+  const name = file.name.toLowerCase();
+  const ok = /\.(jpe?g|png|pdf|webm|ogg|mp3|m4a|wav|aac)$/.test(name);
+  if (!ok) return "Use a JPG, PNG, PDF, or a voice note.";
+  return "";
 }
 
 async function uploadDocument(file: File) {
@@ -39,245 +77,596 @@ async function uploadDocument(file: File) {
   return uploaded.data.id;
 }
 
+function Avatar({ name, photoUrl, size = "md" }: { name: string; photoUrl?: string | null; size?: "md" | "lg" }) {
+  const box = size === "lg" ? "h-11 w-11 text-sm" : "h-10 w-10 text-xs";
+  if (photoUrl) {
+    return <img src={photoUrl} alt="" className={cn(box, "rounded-md object-cover")} />;
+  }
+  return <span className={cn(box, "grid place-items-center rounded-md bg-brand font-semibold text-ink")}>{initials(name)}</span>;
+}
+
+function ChatFile({ fileId, card = false }: { fileId: string; card?: boolean }) {
+  const file = useQuery({
+    queryKey: ["file-url", fileId],
+    queryFn: () => api<{ data: FileMeta }>(`/files/${fileId}/url`),
+    staleTime: 10 * 60 * 1000,
+  });
+  const data = file.data?.data;
+  if (!data?.url) {
+    return <span className="text-xs text-muted">{file.isError ? "File unavailable" : "Loading file..."}</span>;
+  }
+  const audio = data.mime?.startsWith("audio/") || /\.(webm|ogg|mp3|m4a|wav|aac)$/i.test(data.name ?? "");
+  const image = data.mime?.startsWith("image/") || /\.(jpe?g|png|gif|webp)$/i.test(data.name ?? "");
+  if (audio) {
+    return (
+      <div className={cn(card && "rounded-md border border-line bg-card p-3")}>
+        <p className="mb-2 text-xs font-medium text-muted">Voice note</p>
+        <audio controls src={data.url} className="h-9 w-full max-w-xs" />
+      </div>
+    );
+  }
+  if (image) {
+    return (
+      <a href={data.url} target="_blank" rel="noreferrer" className={cn(card && "block overflow-hidden rounded-md border border-line bg-card")}>
+        <img src={data.url} alt={data.name || "Photo"} className={cn("object-cover", card ? "h-36 w-full" : "max-h-52 rounded-md")} />
+      </a>
+    );
+  }
+  return (
+    <a href={data.url} target="_blank" rel="noreferrer" className={cn("inline-flex items-center gap-2 text-sm font-medium text-brand-deep", card && "rounded-md border border-line bg-card p-3")}>
+      <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
+      <span className="truncate">{data.name || "Open file"}</span>
+    </a>
+  );
+}
+
 export function MessagesPage() {
   const client = useQueryClient();
-  const [form, setForm] = useState(empty);
+  const threadRef = useRef<HTMLDivElement>(null);
+  const holdTimer = useRef<number | null>(null);
+  const holdStart = useRef<{ x: number; y: number } | null>(null);
+  const recorder = useRef<MediaRecorder | null>(null);
+  const stream = useRef<MediaStream | null>(null);
+  const chunks = useRef<Blob[]>([]);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const [selected, setSelected] = useState<string>("");
+  const [folder, setFolder] = useState<"chats" | "files">("chats");
+  const [search, setSearch] = useState("");
+  const [draft, setDraft] = useState("");
   const [newFiles, setNewFiles] = useState<File[]>([]);
   const [editingId, setEditingId] = useState("");
+  const [keptIds, setKeptIds] = useState<string[]>([]);
+  const [menu, setMenu] = useState<{ id: string; top: number; left: number; confirm: boolean } | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [recording, setRecording] = useState(false);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
-  const [search, setSearch] = useState("");
-  const [driverFilter, setDriverFilter] = useState("");
-  const [confirmId, setConfirmId] = useState("");
 
   const drivers = useQuery({
     queryKey: ["driver-options"],
-    queryFn: () => api<ListResponse<DriverOption>>("/drivers?limit=500"),
+    queryFn: () => api<ListResponse<DriverOption>>("/drivers?limit=500&sort=name"),
   });
   const messages = useQuery({
     queryKey: ["messages"],
     queryFn: () => api<{ data: Message[] }>("/messages"),
+    refetchInterval: 15000,
   });
+
+  const rows = messages.data?.data ?? [];
+  const people = drivers.data?.data ?? [];
+  const activeCount = people.filter((driver) => driver.status?.code === "active").length;
+
+  const chats = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return people
+      .filter((driver) => !term || driver.name.toLowerCase().includes(term))
+      .map((driver) => ({
+        driver,
+        latest: rows.find((message) => message.driverId === driver.id),
+      }))
+      .sort((a, b) => {
+        const left = a.latest?.createdAt ? new Date(a.latest.createdAt).getTime() : 0;
+        const right = b.latest?.createdAt ? new Date(b.latest.createdAt).getTime() : 0;
+        return right - left;
+      });
+  }, [people, rows, search]);
+
+  const thread = useMemo(() => {
+    if (selected === ALL) {
+      const seen = new Set<string>();
+      const grouped: Message[] = [];
+      for (const message of [...rows].reverse()) {
+        if (!message.broadcastId || seen.has(message.broadcastId)) continue;
+        seen.add(message.broadcastId);
+        const sent = rows.filter((row) => row.broadcastId === message.broadcastId).length;
+        grouped.push({ ...message, sent, driverName: "All drivers" });
+      }
+      return grouped;
+    }
+    if (!selected) return [];
+    return rows.filter((message) => message.driverId === selected).slice().reverse();
+  }, [rows, selected]);
+
+  const fileRows = useMemo(() => {
+    const source = selected === ALL
+      ? thread
+      : selected
+        ? rows.filter((message) => message.driverId === selected)
+        : rows;
+    const list: Array<{ fileId: string; message: Message }> = [];
+    const seen = new Set<string>();
+    for (const message of source) {
+      for (const fileId of message.fileIds ?? []) {
+        const key = message.broadcastId ? `${message.broadcastId}:${fileId}` : `${message.id}:${fileId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        list.push({ fileId, message });
+      }
+    }
+    return list;
+  }, [rows, selected, thread]);
+
+  const current = people.find((driver) => driver.id === selected);
+  const inactive = Boolean(current && current.status && current.status.code !== "active");
+  const showPanel = folder === "files" || Boolean(selected);
+
+  useEffect(() => {
+    const node = threadRef.current;
+    if (!node || folder === "files") return;
+    node.scrollTop = node.scrollHeight;
+  }, [thread, selected, folder, newFiles.length]);
+
+  useEffect(() => {
+    if (!menu && !editingId) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [menu, editingId]);
+
+  useEffect(() => {
+    if (!editingId) return;
+    const message = rows.find((row) => row.id === editingId);
+    if (!message || canEditMessage(message.createdAt, Date.now())) return;
+    setEditingId("");
+    setDraft("");
+    setKeptIds([]);
+    setNewFiles([]);
+    setMenu(null);
+    setNote("Edit closed after 2 minutes.");
+  }, [editingId, now, rows]);
+
+  useEffect(() => {
+    if (!menu) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setMenu(null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menu]);
+
+  useEffect(() => {
+    return () => {
+      cancelHold();
+      const rec = recorder.current;
+      if (rec && rec.state !== "inactive") {
+        rec.onstop = null;
+        rec.stop();
+      }
+      stream.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  function openChat(id: string) {
+    setSelected(id);
+    setFolder("chats");
+    setEditingId("");
+    setKeptIds([]);
+    setDraft("");
+    setNewFiles([]);
+    setMenu(null);
+    setError("");
+    setNote("");
+  }
+
+  function cancelHold() {
+    if (holdTimer.current) window.clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    holdStart.current = null;
+  }
+
+  function openMenu(id: string, clientX: number, clientY: number) {
+    const width = 180;
+    const height = 108;
+    const left = Math.max(8, Math.min(clientX, window.innerWidth - width - 8));
+    const top = clientY + height > window.innerHeight - 8 ? Math.max(8, clientY - height) : clientY;
+    setMenu({ id, top, left, confirm: false });
+  }
+
+  function startHold(message: Message, event: ReactPointerEvent<HTMLDivElement>) {
+    if (selected === ALL || message.senderRole === "driver") return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    cancelHold();
+    const x = event.clientX;
+    const y = event.clientY;
+    holdStart.current = { x, y };
+    holdTimer.current = window.setTimeout(() => {
+      openMenu(message.id, x, y);
+      holdTimer.current = null;
+    }, 500);
+  }
+
+  function addFiles(list: FileList | null) {
+    if (!list?.length) return;
+    const next = [...newFiles];
+    for (const file of Array.from(list)) {
+      const problem = fileAllowed(file);
+      if (problem) {
+        setError(problem);
+        continue;
+      }
+      if (next.length >= 12) {
+        setError("You can attach up to 12 files.");
+        break;
+      }
+      next.push(file);
+      setError("");
+    }
+    setNewFiles(next);
+  }
+
+  async function toggleRecording() {
+    if (recorder.current && recorder.current.state === "recording") {
+      recorder.current.stop();
+      return;
+    }
+    try {
+      const media = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.current = media;
+      const rec = new MediaRecorder(media);
+      chunks.current = [];
+      rec.ondataavailable = (event) => {
+        if (event.data.size) chunks.current.push(event.data);
+      };
+      rec.onstop = () => {
+        media.getTracks().forEach((track) => track.stop());
+        stream.current = null;
+        const type = rec.mimeType || "audio/webm";
+        const blob = new Blob(chunks.current, { type });
+        const extension = type.includes("mp4") ? "m4a" : "webm";
+        const file = new File([blob], `voice-${Date.now()}.${extension}`, { type });
+        setNewFiles((currentFiles) => [...currentFiles, file].slice(0, 12));
+        setRecording(false);
+        recorder.current = null;
+      };
+      rec.start();
+      recorder.current = rec;
+      setRecording(true);
+      setError("");
+    } catch {
+      setError("Allow microphone access to record a voice note.");
+    }
+  }
 
   const save = useMutation({
     mutationFn: async () => {
       const uploaded = await Promise.all(newFiles.map((file) => uploadDocument(file)));
-      const payload = {
-        driverId: form.driverId,
-        body: form.body.trim(),
-        fileIds: [...form.fileIds, ...uploaded],
-      };
-      if (editingId) return api<{ data: Message }>(`/messages/${editingId}`, { method: "PATCH", body: payload });
-      return api<{ data: Message }>("/messages", { method: "POST", body: payload });
+      const fileIds = [...keptIds, ...uploaded];
+      const body = draft.trim();
+      if (!body && fileIds.length === 0) throw new ApiError("Write a message or add a file.", 400);
+      if (editingId && selected !== ALL) {
+        return api<{ data: Message }>(`/messages/${editingId}`, { method: "PATCH", body: { driverId: selected, body, fileIds } });
+      }
+      if (selected === ALL) {
+        return api<{ data: Message }>("/messages/broadcast", { method: "POST", body: { body, fileIds } });
+      }
+      return api<{ data: Message }>("/messages", { method: "POST", body: { driverId: selected, body, fileIds } });
     },
     onSuccess: async (result) => {
       const edited = Boolean(editingId);
-      setForm(empty);
+      setDraft("");
       setNewFiles([]);
+      setKeptIds([]);
       setEditingId("");
       setError("");
       if (edited) setNote("Message updated.");
-      else setNote(result.data.delivered ? "Message sent to the driver." : "Message saved. SMS delivery did not complete.");
+      else if (selected === ALL) {
+        const sent = result.data.sent ?? 0;
+        const delivered = result.data.delivered;
+        setNote(typeof delivered === "number" ? `Sent to ${sent} drivers. SMS reached ${delivered}.` : `Sent to ${sent} drivers.`);
+      } else setNote(result.data.delivered ? "Message sent." : "Message saved. SMS delivery did not complete.");
       await client.invalidateQueries({ queryKey: ["messages"] });
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Could not save the message"),
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Could not send the message."),
   });
 
   const remove = useMutation({
     mutationFn: (id: string) => api(`/messages/${id}`, { method: "DELETE" }),
     onSuccess: async () => {
-      setConfirmId("");
-      if (confirmId === editingId) {
+      setMenu(null);
+      setError("");
+      if (menu && editingId === menu.id) {
         setEditingId("");
-        setForm(empty);
-        setNewFiles([]);
+        setDraft("");
+        setKeptIds([]);
       }
       await client.invalidateQueries({ queryKey: ["messages"] });
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Could not delete the message"),
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Could not delete the message."),
   });
 
-  function onSubmit(event: FormEvent) {
+  function onSend(event: FormEvent) {
     event.preventDefault();
-    setError("");
-    setNote("");
-    if (!form.driverId) {
-      setError("Select a driver");
-      return;
-    }
-    if (!form.body.trim() && form.fileIds.length === 0 && newFiles.length === 0) {
-      setError("Write a message or add a document");
-      return;
-    }
+    if (recording || save.isPending || inactive) return;
     save.mutate();
   }
 
-  function startEdit(message: Message) {
-    setEditingId(message.id);
-    setForm({ driverId: message.driverId, body: message.body, fileIds: message.fileIds ?? [] });
-    setNewFiles([]);
-    setError("");
-    setNote("");
-    setConfirmId("");
-  }
-
-  function cancelEdit() {
-    setEditingId("");
-    setForm(empty);
-    setNewFiles([]);
-    setError("");
-  }
-
-  const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return (messages.data?.data ?? []).filter((message) => {
-      if (driverFilter && message.driverId !== driverFilter) return false;
-      if (!term) return true;
-      return `${message.driverName} ${message.body}`.toLowerCase().includes(term);
-    });
-  }, [messages.data, search, driverFilter]);
-
-  const filtersOn = Boolean(search || driverFilter);
+  const title = selected === ALL ? "All drivers" : current?.name ?? "Messages";
+  const subtitle = selected === ALL
+    ? `${activeCount} active driver${activeCount === 1 ? "" : "s"}`
+    : current?.status?.label ?? "Direct chat";
 
   return (
-    <div>
-      <PageHeader title="Messages" />
-      <form onSubmit={onSubmit} className="mb-4 rounded-md border border-line bg-card p-4">
-        <h2 className="text-base font-semibold">{editingId ? "Edit message" : "New message"}</h2>
-        <p className="mt-1 text-sm text-muted">
-          {editingId
-            ? "Saving updates this message. It does not send another SMS."
-            : "The text is sent by SMS. Documents stay on this message."}
-        </p>
-        <div className="mt-4 grid gap-3">
-          <Field label="Driver">
-            <SelectInput value={form.driverId} onChange={(event) => setForm({ ...form, driverId: event.target.value })}>
-              <option value="">Select a driver</option>
-              {drivers.data?.data.map((driver) => (
-                <option key={driver.id} value={driver.id}>{driver.name}</option>
-              ))}
-            </SelectInput>
-          </Field>
-          <Field label="Message">
-            <TextArea value={form.body} maxLength={500} placeholder="Write the message" onChange={(event) => setForm({ ...form, body: event.target.value })} />
-          </Field>
-          <div>
-            <p className="text-sm font-medium">Documents</p>
-            <p className="mt-1 text-xs text-muted">Images, PDF, and other documents, up to 10 MB each.</p>
-            <div className="mt-3 flex flex-wrap gap-3">
-              {form.fileIds.map((id) => (
-                <DocThumb key={id} fileId={id} onRemove={() => setForm({ ...form, fileIds: form.fileIds.filter((item) => item !== id) })} />
-              ))}
-              {newFiles.map((file, index) => (
-                <LocalDoc key={`${file.name}-${file.size}-${index}`} file={file} onRemove={() => setNewFiles(newFiles.filter((_, item) => item !== index))} />
-              ))}
-            </div>
-            <label className="mt-3 inline-flex cursor-pointer items-center rounded-md border border-line bg-card px-3 py-2 text-sm">
-              Add documents
-              <input
-                className="sr-only"
-                type="file"
-                multiple
-                onChange={(event) => {
-                  setNewFiles((current) => [...current, ...Array.from(event.target.files ?? [])]);
-                  event.target.value = "";
-                }}
-              />
-            </label>
+    <div className="flex h-[calc(100dvh-11.5rem)] min-h-[32rem] overflow-hidden rounded-lg border border-line bg-card shadow-[0_8px_24px_rgba(17,22,16,0.04)] md:h-[calc(100dvh-8rem)]">
+      <aside className={cn("w-full shrink-0 flex-col border-line bg-card lg:flex lg:w-80 lg:border-r", showPanel ? "hidden" : "flex")}>
+        <div className="border-b border-line px-4 py-4">
+          <h1 className="text-lg font-semibold text-ink">Messages</h1>
+          <p className="mt-0.5 text-sm text-muted">Chat with one driver, or everyone at once.</p>
+          <label className="relative mt-3 block">
+            <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search drivers"
+              aria-label="Search drivers"
+              className="h-10 w-full rounded-md border border-line bg-canvas pr-3 pl-9 text-sm text-ink outline-none placeholder:text-muted focus:border-brand focus:ring-2 focus:ring-brand/25"
+            />
+          </label>
+          <div className="mt-3 grid grid-cols-2 gap-1 rounded-md bg-canvas p-1">
+            <button type="button" className={cn("h-9 rounded-md text-sm font-medium", folder === "chats" ? "bg-brand text-ink" : "text-muted hover:text-ink")} onClick={() => setFolder("chats")}>Chats</button>
+            <button type="button" className={cn("inline-flex h-9 items-center justify-center gap-1.5 rounded-md text-sm font-medium", folder === "files" ? "bg-brand text-ink" : "text-muted hover:text-ink")} onClick={() => setFolder("files")}>
+              <Folder className="h-4 w-4" aria-hidden="true" />
+              Files
+            </button>
           </div>
         </div>
-        {error ? <p className="mt-3 text-sm text-status-danger">{error}</p> : null}
-        {note ? <p className="mt-3 text-sm text-muted">{note}</p> : null}
-        <div className="mt-4 flex gap-2">
-          <Button disabled={save.isPending}>{save.isPending ? "Saving..." : editingId ? "Save changes" : "Send message"}</Button>
-          {editingId ? <Button type="button" variant="secondary" onClick={cancelEdit}>Cancel</Button> : null}
-        </div>
-      </form>
-
-      <div className="mb-4 rounded-md border border-line bg-card p-4">
-        <div className="grid gap-3 md:grid-cols-2">
-          <Field label="Search">
-            <TextInput placeholder="Driver or message" value={search} onChange={(event) => setSearch(event.target.value)} />
-          </Field>
-          <Field label="Driver">
-            <SelectInput value={driverFilter} onChange={(event) => setDriverFilter(event.target.value)}>
-              <option value="">All drivers</option>
-              {drivers.data?.data.map((driver) => (
-                <option key={driver.id} value={driver.id}>{driver.name}</option>
-              ))}
-            </SelectInput>
-          </Field>
-        </div>
-        <div className="mt-3 flex items-center justify-between text-sm">
-          <p className="text-muted">{filtered.length} {filtered.length === 1 ? "message" : "messages"}</p>
-          {filtersOn ? (
-            <button type="button" className="text-accent" onClick={() => { setSearch(""); setDriverFilter(""); }}>Clear filters</button>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {(!search || "all drivers".includes(search.trim().toLowerCase())) ? (
+            <button type="button" className={cn("flex w-full items-center gap-3 border-b border-line px-4 py-3 text-left", selected === ALL && folder === "chats" ? "bg-brand-soft" : "hover:bg-canvas")} onClick={() => openChat(ALL)}>
+              <span className="grid h-10 w-10 place-items-center rounded-md bg-highlight text-ink"><Users className="h-4 w-4" aria-hidden="true" /></span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-baseline justify-between gap-2">
+                  <span className="truncate text-sm font-semibold text-ink">All drivers</span>
+                  <span className="shrink-0 text-xs text-muted">{activeCount}</span>
+                </span>
+                <span className="mt-0.5 block truncate text-xs text-muted">Send one message to every active driver</span>
+              </span>
+            </button>
           ) : null}
+          {drivers.isLoading || messages.isLoading ? <p className="px-4 py-6 text-sm text-muted">Loading chats...</p> : null}
+          {drivers.isError || messages.isError ? <p className="px-4 py-6 text-sm text-status-danger">Could not load chats.</p> : null}
+          {chats.map(({ driver, latest }) => (
+            <button key={driver.id} type="button" className={cn("flex w-full items-center gap-3 px-4 py-3 text-left", selected === driver.id && folder === "chats" ? "bg-brand-soft" : "hover:bg-canvas")} onClick={() => openChat(driver.id)}>
+              <Avatar name={driver.name} photoUrl={driver.photoUrl} />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-baseline justify-between gap-2">
+                  <span className="truncate text-sm font-semibold text-ink">{driver.name}</span>
+                  <span className="shrink-0 text-xs text-muted">{formatWhen(latest?.createdAt ?? null)}</span>
+                </span>
+                <span className="mt-0.5 block truncate text-xs text-muted">{preview(latest)}</span>
+              </span>
+            </button>
+          ))}
+          {!drivers.isLoading && chats.length === 0 ? <p className="px-4 py-6 text-sm text-muted">No drivers match that search.</p> : null}
         </div>
-      </div>
+      </aside>
 
-      {messages.isLoading ? <StateMessage>Loading messages...</StateMessage> : null}
-      {messages.isError ? <StateMessage>Could not load messages.</StateMessage> : null}
-      {messages.data && filtered.length === 0 ? (
-        <StateMessage>{messages.data.data.length === 0 ? "No messages yet." : "No messages match these filters."}</StateMessage>
-      ) : null}
-      <ul className="space-y-3">
-        {filtered.map((message) => (
-          <li key={message.id} className="rounded-md border border-line bg-card p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="font-semibold">{message.driverName}</p>
-                <p className="mt-1 text-sm text-muted">{formatWhen(message.createdAt)}</p>
+      <section className={cn("min-w-0 flex-1 flex-col bg-card", showPanel ? "flex" : "hidden lg:flex")}>
+        {folder === "files" ? (
+          <>
+            <header className="flex items-center gap-3 border-b border-line px-3 py-3 sm:px-4">
+              <button type="button" className="grid h-10 w-10 place-items-center rounded-md text-ink hover:bg-brand-soft lg:hidden" aria-label="Back to chats" onClick={() => setFolder("chats")}>
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-semibold text-ink">Files</h2>
+                <p className="truncate text-xs text-muted">{selected ? `Shared in ${title}` : "Photos, voice notes, and documents from every chat"}</p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="secondary" onClick={() => startEdit(message)}>Edit</Button>
-                {confirmId === message.id ? (
-                  <Button variant="danger" disabled={remove.isPending} onClick={() => remove.mutate(message.id)}>
-                    {remove.isPending ? "Deleting..." : "Confirm delete"}
-                  </Button>
-                ) : (
-                  <Button variant="secondary" onClick={() => setConfirmId(message.id)}>Delete</Button>
-                )}
+            </header>
+            <div className="min-h-0 flex-1 overflow-y-auto bg-brand-soft p-4">
+              {fileRows.length === 0 ? <p className="rounded-lg border border-dashed border-line bg-card px-4 py-10 text-center text-sm text-muted">No files in this view yet.</p> : null}
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {fileRows.map(({ fileId, message }) => (
+                  <div key={`${message.id}-${fileId}`} className="space-y-2">
+                    <ChatFile fileId={fileId} card />
+                    <p className="truncate text-xs text-muted">{message.driverName} · {formatWhen(message.createdAt, true)}</p>
+                  </div>
+                ))}
               </div>
             </div>
-            <p className="mt-3 whitespace-pre-wrap text-sm">{message.body || "Document only"}</p>
-            {(message.fileIds ?? []).length > 0 ? (
-              <div className="mt-3 flex flex-wrap gap-3">
-                {message.fileIds.map((id) => <DocThumb key={id} fileId={id} />)}
+          </>
+        ) : selected ? (
+          <>
+            <header className="flex items-center gap-3 border-b border-line px-3 py-3 sm:px-4">
+              <button type="button" className="grid h-10 w-10 place-items-center rounded-md text-ink hover:bg-brand-soft lg:hidden" aria-label="Back to chats" onClick={() => setSelected("")}>
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+              {selected === ALL ? (
+                <span className="grid h-11 w-11 place-items-center rounded-md bg-highlight text-ink"><Users className="h-5 w-5" aria-hidden="true" /></span>
+              ) : (
+                <Avatar name={current?.name ?? "Driver"} photoUrl={current?.photoUrl} size="lg" />
+              )}
+              <div className="min-w-0 flex-1">
+                <h2 className="truncate text-base font-semibold text-ink">{title}</h2>
+                <p className="truncate text-xs text-muted">{subtitle}</p>
               </div>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
+              <button type="button" className="inline-flex h-10 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-ink hover:bg-brand-soft" onClick={() => setFolder("files")}>
+                <Folder className="h-4 w-4" aria-hidden="true" />
+                <span className="hidden sm:inline">Files</span>
+              </button>
+            </header>
 
-function LocalDoc({ file, onRemove }: { file: File; onRemove: () => void }) {
-  const preview = useMemo(() => (file.type.startsWith("image/") ? URL.createObjectURL(file) : ""), [file]);
-  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
-  return (
-    <div className="w-28">
-      <div className="flex h-24 items-center justify-center overflow-hidden rounded-md border border-line bg-canvas p-2 text-center text-xs">
-        {preview ? <img src={preview} alt="" className="h-full w-full object-cover" /> : file.name}
-      </div>
-      <button type="button" className="mt-1 text-xs text-status-danger" onClick={onRemove}>Remove</button>
-    </div>
-  );
-}
+            <div ref={threadRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-brand-soft px-3 py-4 sm:px-5" onScroll={() => { if (menu) setMenu(null); }}>
+              {thread.length === 0 ? (
+                <p className="mx-auto max-w-sm rounded-lg border border-dashed border-line bg-card px-4 py-8 text-center text-sm text-muted">
+                  {selected === ALL ? "A message here goes to every active driver, with an SMS as well." : "No messages with this driver yet."}
+                </p>
+              ) : null}
+              {thread.map((message) => {
+                const mine = message.senderRole !== "driver";
+                const holdable = mine && selected !== ALL;
+                return (
+                  <div key={message.broadcastId && selected === ALL ? message.broadcastId : message.id} className={cn("flex", mine ? "justify-end" : "justify-start")}>
+                    <div
+                      className={cn("max-w-[min(100%,28rem)] rounded-lg px-3 py-2 shadow-[0_1px_2px_rgba(17,22,16,0.06)]", mine ? "rounded-br-sm bg-brand text-ink" : "rounded-bl-sm bg-card text-ink", holdable && "cursor-pointer")}
+                      style={holdable ? { WebkitTouchCallout: "none" } : undefined}
+                      onPointerDown={holdable ? (event) => startHold(message, event) : undefined}
+                      onPointerMove={holdable ? (event) => {
+                        if (!holdStart.current || !holdTimer.current) return;
+                        const dx = event.clientX - holdStart.current.x;
+                        const dy = event.clientY - holdStart.current.y;
+                        if (dx * dx + dy * dy > 64) cancelHold();
+                      } : undefined}
+                      onPointerUp={holdable ? cancelHold : undefined}
+                      onPointerCancel={holdable ? cancelHold : undefined}
+                      onContextMenu={holdable ? (event) => {
+                        event.preventDefault();
+                        cancelHold();
+                        openMenu(message.id, event.clientX, event.clientY);
+                      } : undefined}
+                    >
+                      {message.body ? <p className="whitespace-pre-wrap text-sm leading-6">{message.body}</p> : null}
+                      {message.fileIds?.length ? (
+                        <div className={cn("space-y-2", message.body && "mt-2")}>
+                          {message.fileIds.map((fileId) => <ChatFile key={fileId} fileId={fileId} />)}
+                        </div>
+                      ) : null}
+                      <p className="mt-1 text-right text-[11px] text-ink/70">
+                        {selected === ALL && message.sent ? `Sent to ${message.sent} · ` : ""}
+                        {formatWhen(message.createdAt, true)}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
 
-function DocThumb({ fileId, onRemove }: { fileId: string; onRemove?: () => void }) {
-  const file = useQuery({
-    queryKey: ["file-url", fileId],
-    queryFn: () => api<{ data: { url: string } }>(`/files/${fileId}/url`),
-  });
-  const url = file.data?.data.url;
-  return (
-    <div className="w-28">
-      <a href={url ?? "#"} target="_blank" rel="noreferrer" className="block h-24 overflow-hidden rounded-md border border-line bg-canvas">
-        {url ? <img src={url} alt="" className="h-full w-full object-cover" /> : <span className="flex h-full items-center justify-center text-xs text-muted">Open</span>}
-      </a>
-      {onRemove ? <button type="button" className="mt-1 text-xs text-status-danger" onClick={onRemove}>Remove</button> : null}
+            <form onSubmit={onSend} className="border-t border-line bg-card px-3 py-3 sm:px-4">
+              {inactive ? <p className="mb-2 text-sm text-muted">This driver is inactive, so new messages stay off.</p> : null}
+              {editingId ? (
+                <div className="mb-2 flex items-center justify-between gap-3 rounded-md bg-brand-soft px-3 py-2 text-sm text-ink">
+                  <span>Editing this message.</span>
+                  <button type="button" className="font-medium" onClick={() => { setEditingId(""); setDraft(""); setKeptIds([]); setNewFiles([]); }}>Cancel</button>
+                </div>
+              ) : null}
+              {note ? <p className="mb-2 text-sm text-brand-deep">{note}</p> : null}
+              {error ? <p className="mb-2 text-sm text-status-danger">{error}</p> : null}
+              {recording ? <p className="mb-2 text-sm text-ink">Recording a voice note. Tap stop when you are done.</p> : null}
+              {(newFiles.length > 0 || keptIds.length > 0) ? (
+                <ul className="mb-2 flex flex-wrap gap-2">
+                  {keptIds.map((fileId) => (
+                    <li key={fileId} className="inline-flex max-w-full items-center gap-2 rounded-md border border-line bg-canvas px-2 py-1 text-xs text-ink">
+                      <span className="truncate">Attached file</span>
+                      <button type="button" aria-label="Remove file" onClick={() => setKeptIds((ids) => ids.filter((id) => id !== fileId))}><X className="h-3.5 w-3.5" /></button>
+                    </li>
+                  ))}
+                  {newFiles.map((file, index) => (
+                    <li key={`${file.name}-${index}`} className="inline-flex max-w-full items-center gap-2 rounded-md border border-line bg-canvas px-2 py-1 text-xs text-ink">
+                      <span className="max-w-[12rem] truncate">{file.name}</span>
+                      <button type="button" aria-label={`Remove ${file.name}`} onClick={() => setNewFiles((files) => files.filter((_, item) => item !== index))}><X className="h-3.5 w-3.5" /></button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <div className="flex items-end gap-1.5 sm:gap-2">
+                <input ref={cameraRef} type="file" accept="image/jpeg,image/png" capture="environment" className="hidden" onChange={(event) => { addFiles(event.target.files); event.target.value = ""; }} />
+                <input ref={fileRef} type="file" accept="image/jpeg,image/png,application/pdf,.jpg,.jpeg,.png,.pdf" multiple className="hidden" onChange={(event) => { addFiles(event.target.files); event.target.value = ""; }} />
+                <button type="button" className="grid h-10 w-10 shrink-0 place-items-center rounded-md text-ink hover:bg-brand-soft disabled:opacity-50" aria-label="Take a photo" disabled={inactive || recording} onClick={() => cameraRef.current?.click()}>
+                  <Camera className="h-4 w-4" />
+                </button>
+                <button type="button" className="grid h-10 w-10 shrink-0 place-items-center rounded-md text-ink hover:bg-brand-soft disabled:opacity-50" aria-label="Attach a file" disabled={inactive || recording} onClick={() => fileRef.current?.click()}>
+                  <Paperclip className="h-4 w-4" />
+                </button>
+                <button type="button" className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-md text-ink hover:bg-brand-soft disabled:opacity-50", recording && "bg-highlight")} aria-label={recording ? "Stop recording" : "Record a voice note"} disabled={inactive} onClick={() => void toggleRecording()}>
+                  {recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                </button>
+                <textarea
+                  value={draft}
+                  maxLength={500}
+                  rows={1}
+                  disabled={inactive}
+                  placeholder={selected === ALL ? "Message every active driver" : "Write a message"}
+                  aria-label="Message"
+                  className="max-h-28 min-h-10 flex-1 resize-none rounded-md border border-line bg-canvas px-3 py-2 text-sm text-ink outline-none placeholder:text-muted focus:border-brand focus:ring-2 focus:ring-brand/25 disabled:opacity-60"
+                  onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      event.currentTarget.form?.requestSubmit();
+                    }
+                  }}
+                />
+                <button type="submit" className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-brand text-ink hover:bg-brand-strong disabled:opacity-50" aria-label="Send message" disabled={inactive || recording || save.isPending}>
+                  <Send className="h-4 w-4" />
+                </button>
+              </div>
+              <p className="mt-1 flex items-center justify-between gap-3 text-[11px] text-muted">
+                <span>{selected === ALL || editingId ? "" : "Press and hold your message to edit or delete. Edit closes after 2 minutes."}</span>
+                <span>{draft.length}/500</span>
+              </p>
+            </form>
+          </>
+        ) : (
+          <div className="grid flex-1 place-items-center bg-brand-soft px-6 text-center">
+            <div>
+              <p className="text-base font-semibold text-ink">Choose a chat</p>
+              <p className="mx-auto mt-1 max-w-sm text-sm leading-6 text-muted">Open a driver for a private message, or All drivers to reach the whole fleet at once.</p>
+            </div>
+          </div>
+        )}
+      </section>
+      {menu ? (
+        <>
+          <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Close message actions" onClick={() => setMenu(null)} />
+          <div className="fixed z-50 w-44 rounded-lg border border-line bg-card p-1 shadow-[0_8px_24px_rgba(17,22,16,0.12)]" style={{ top: menu.top, left: menu.left }} role="menu">
+            {menu.confirm ? (
+              <div className="px-2 py-2">
+                <p className="text-sm text-ink">Delete this message?</p>
+                <div className="mt-2 flex gap-2">
+                  <button type="button" className="h-9 flex-1 rounded-md bg-status-danger text-sm font-medium text-white disabled:opacity-60" disabled={remove.isPending} onClick={() => remove.mutate(menu.id)}>Delete</button>
+                  <button type="button" className="h-9 flex-1 rounded-md border border-line text-sm font-medium text-ink" onClick={() => setMenu(null)}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {canEditMessage(rows.find((row) => row.id === menu.id)?.createdAt ?? null, Date.now()) ? (
+                  <button
+                    type="button"
+                    className="h-9 w-full rounded-md px-3 text-left text-sm font-medium text-ink hover:bg-brand-soft"
+                    role="menuitem"
+                    onClick={() => {
+                      const message = rows.find((row) => row.id === menu.id);
+                      if (!message) return;
+                      setEditingId(message.id);
+                      setDraft(message.body);
+                      setKeptIds(message.fileIds ?? []);
+                      setNewFiles([]);
+                      setMenu(null);
+                    }}
+                  >
+                    Edit
+                  </button>
+                ) : (
+                  <p className="px-3 py-2 text-xs text-muted">Edit closed after 2 minutes.</p>
+                )}
+                <button type="button" className="h-9 w-full rounded-md px-3 text-left text-sm font-medium text-status-danger hover:bg-status-danger-bg" role="menuitem" onClick={() => setMenu({ ...menu, confirm: true })}>
+                  Delete
+                </button>
+              </>
+            )}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

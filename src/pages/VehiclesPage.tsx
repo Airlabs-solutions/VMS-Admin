@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { DateField } from "../components/DateField";
 import { Badge, Button, Field, PageHeader, SelectInput, StateMessage, TextArea, TextInput } from "../components/ui";
 import { ApiError, api } from "../lib/api";
-import { formatDate } from "../lib/format";
+import { emiPreview } from "../lib/emi";
+import { formatDate, formatSar } from "../lib/format";
 import type { ListResponse, Status } from "../types";
 
 type Vehicle = {
@@ -28,9 +29,22 @@ type Vehicle = {
   insurance?: { startDate: string | null; endDate: string | null; status: Status } | null;
   pucExpiry?: string | null;
   fitnessExpiry?: string | null;
+  fahasExpiry?: string | null;
 };
 
-type DriverOption = { id: string; name: string };
+type DriverOption = { id: string; name: string; mobileMasked: string };
+
+type LinkedDriver = {
+  name: string;
+  mobile: string | null;
+  employeeId: string;
+  status: Status;
+  iqamaNumber: string | null;
+  iqamaExpiry: string | null;
+  licenseNumber: string | null;
+  licenseType: Status;
+  licenseExpiry: string | null;
+};
 
 type Draft = {
   id: string | null;
@@ -51,9 +65,56 @@ type Draft = {
   note: string;
   insuranceStart: string;
   insuranceEnd: string;
-  pucExpiry: string;
-  fitnessExpiry: string;
+  fahasExpiry: string;
 };
+
+type EmiDraft = {
+  bank: string;
+  loanAmount: string;
+  downPayment: string;
+  interestRate: string;
+  tenureMonths: string;
+  startDate: string;
+  dueDay: string;
+};
+
+const ADD_DRIVER = "__add__";
+
+const licenseTypes = [
+  ["private", "Private"],
+  ["light_transport", "Light transport"],
+  ["heavy", "Heavy"],
+  ["motorcycle", "Motorcycle"],
+  ["other", "Other"],
+] as const;
+
+type NewDriver = {
+  name: string;
+  mobile: string;
+  employeeId: string;
+  status: string;
+  iqamaNumber: string;
+  iqamaExpiry: string;
+  licenseNumber: string;
+  licenseType: string;
+  licenseExpiry: string;
+  portalAccess: boolean;
+};
+
+function blankDriver(): NewDriver {
+  return {
+    name: "",
+    mobile: "",
+    employeeId: "",
+    status: "active",
+    iqamaNumber: "",
+    iqamaExpiry: "",
+    licenseNumber: "",
+    licenseType: "private",
+    licenseExpiry: "",
+    portalAccess: false,
+  };
+}
 
 const fuels = [
   ["petrol", "Petrol"],
@@ -82,8 +143,30 @@ function blankDraft(): Draft {
     note: "",
     insuranceStart: "",
     insuranceEnd: "",
-    pucExpiry: "",
-    fitnessExpiry: "",
+    fahasExpiry: "",
+  };
+}
+
+function EmiSummary({ emi }: { emi: EmiDraft }) {
+  const preview = emiPreview(Number(emi.loanAmount), Number(emi.downPayment || 0), Number(emi.interestRate || 0), Number(emi.tenureMonths));
+  if (!preview) return null;
+  const last = preview.lastHalalas === preview.monthlyHalalas ? "" : ` Last installment ${formatSar({ halalas: preview.lastHalalas })}.`;
+  return (
+    <p className="text-sm text-muted sm:col-span-2">
+      Financed {formatSar({ halalas: preview.financedHalalas })}. Monthly {formatSar({ halalas: preview.monthlyHalalas })}.{last}
+    </p>
+  );
+}
+
+function blankEmi(): EmiDraft {
+  return {
+    bank: "",
+    loanAmount: "",
+    downPayment: "0",
+    interestRate: "0",
+    tenureMonths: "36",
+    startDate: "",
+    dueDay: "1",
   };
 }
 
@@ -112,8 +195,7 @@ function draftFrom(vehicle: Vehicle): Draft {
     note: vehicle.note ?? "",
     insuranceStart: dateInput(vehicle.insurance?.startDate),
     insuranceEnd: dateInput(vehicle.insurance?.endDate),
-    pucExpiry: dateInput(vehicle.pucExpiry),
-    fitnessExpiry: dateInput(vehicle.fitnessExpiry),
+    fahasExpiry: dateInput(vehicle.fahasExpiry || vehicle.pucExpiry || vehicle.fitnessExpiry),
   };
 }
 
@@ -198,9 +280,13 @@ export function VehiclesPage() {
   const [driverFilter, setDriverFilter] = useState("");
   const [insuranceFilter, setInsuranceFilter] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [emi, setEmi] = useState<EmiDraft>(blankEmi());
+  const [emiLocked, setEmiLocked] = useState(false);
   const [plateFile, setPlateFile] = useState<File | null>(null);
   const [vehicleFile, setVehicleFile] = useState<File | null>(null);
   const [extraFiles, setExtraFiles] = useState<File[]>([]);
+  const [newDriver, setNewDriver] = useState<NewDriver>(blankDriver());
+  const [driverFiles, setDriverFiles] = useState<File[]>([]);
   const [error, setError] = useState("");
   const [confirmId, setConfirmId] = useState("");
   const vehicles = useQuery({
@@ -209,7 +295,12 @@ export function VehiclesPage() {
   });
   const drivers = useQuery({
     queryKey: ["driver-options"],
-    queryFn: () => api<ListResponse<DriverOption>>("/drivers?limit=100"),
+    queryFn: () => api<ListResponse<DriverOption>>("/drivers?limit=500"),
+  });
+  const linkedDriver = useQuery({
+    queryKey: ["driver", draft?.driverId],
+    queryFn: () => api<{ data: LinkedDriver }>(`/drivers/${draft?.driverId}`),
+    enabled: Boolean(draft?.driverId) && draft?.driverId !== ADD_DRIVER,
   });
 
   function openAdd() {
@@ -217,6 +308,10 @@ export function VehiclesPage() {
     setPlateFile(null);
     setVehicleFile(null);
     setExtraFiles([]);
+    setNewDriver(blankDriver());
+    setDriverFiles([]);
+    setEmi(blankEmi());
+    setEmiLocked(false);
     setDraft(blankDraft());
   }
 
@@ -225,8 +320,35 @@ export function VehiclesPage() {
     setPlateFile(null);
     setVehicleFile(null);
     setExtraFiles([]);
+    setNewDriver(blankDriver());
+    setDriverFiles([]);
+    setEmi(blankEmi());
+    setEmiLocked(false);
     setConfirmId("");
     setDraft(draftFrom(vehicle));
+    void api<ListResponse<{
+      bank: string;
+      loanAmount: { sar: number };
+      downPayment: { sar: number };
+      interestRate: number;
+      tenureMonths: number;
+      startDate: string | null;
+      dueDay: number;
+      installmentsLeft: number;
+    }>>(`/emi/plans?vehicleId=${vehicle.id}&limit=1`).then((result) => {
+      const plan = result.data[0];
+      if (!plan) return;
+      setEmi({
+        bank: plan.bank,
+        loanAmount: String(plan.loanAmount.sar),
+        downPayment: String(plan.downPayment.sar),
+        interestRate: String(plan.interestRate ?? 0),
+        tenureMonths: String(plan.tenureMonths),
+        startDate: dateInput(plan.startDate),
+        dueDay: String(plan.dueDay),
+      });
+      setEmiLocked(plan.installmentsLeft < plan.tenureMonths);
+    }).catch(() => undefined);
   }
 
   const save = useMutation({
@@ -234,6 +356,45 @@ export function VehiclesPage() {
       if (!draft) return;
       if ((draft.insuranceStart && !draft.insuranceEnd) || (!draft.insuranceStart && draft.insuranceEnd)) {
         throw new ApiError("Enter both the insurance start and expiry dates", 400);
+      }
+      let driverId = draft.driverId;
+      if (driverId === ADD_DRIVER) {
+        if (!newDriver.name.trim()) throw new ApiError("Enter the driver name", 400);
+        if (newDriver.mobile.trim().length < 7) throw new ApiError("Enter a mobile number", 400);
+        if (!/^\d{10}$/.test(newDriver.iqamaNumber.replace(/\D/g, ""))) throw new ApiError("Iqama number must be 10 digits", 400);
+        if (!newDriver.iqamaExpiry) throw new ApiError("Choose the iqama expiry date", 400);
+        if (newDriver.licenseNumber.trim().length < 3) throw new ApiError("Enter the license number", 400);
+        if (!newDriver.licenseExpiry) throw new ApiError("Choose the license expiry date", 400);
+        const uploaded = await Promise.all(driverFiles.map((file) => uploadPhoto(file, "drivers")));
+        const created = await api<{ data: { id: string } }>("/drivers", {
+          method: "POST",
+          body: {
+            name: newDriver.name.trim(),
+            mobile: newDriver.mobile.trim(),
+            employeeId: newDriver.employeeId.trim(),
+            iqamaNumber: newDriver.iqamaNumber.replace(/\D/g, ""),
+            iqamaExpiry: newDriver.iqamaExpiry,
+            licenseNumber: newDriver.licenseNumber.trim(),
+            licenseType: newDriver.licenseType,
+            licenseExpiry: newDriver.licenseExpiry,
+            status: newDriver.status,
+            portalAccess: newDriver.portalAccess,
+            fileIds: uploaded,
+          },
+        });
+        driverId = created.data.id;
+      }
+      const wantsEmi = !emiLocked && Boolean(emi.bank.trim() || emi.loanAmount.trim() || emi.startDate);
+      const loan = Number(emi.loanAmount);
+      const down = Number(emi.downPayment || 0);
+      const interest = Number(emi.interestRate || 0);
+      const tenure = Number(emi.tenureMonths || 36);
+      const dueDay = Number(emi.dueDay || 1);
+      if (wantsEmi && (!emi.bank.trim() || !emi.loanAmount.trim() || !emi.startDate)) {
+        throw new ApiError("Complete the EMI section, or leave bank, loan amount, and start date empty", 400);
+      }
+      if (wantsEmi && (!emiPreview(loan, down, interest, tenure) || dueDay < 1 || dueDay > 28)) {
+        throw new ApiError("Check the EMI loan, down payment, interest, tenure, and due day", 400);
       }
       const platePhotoId = plateFile ? await uploadPhoto(plateFile, "plates") : undefined;
       const vehiclePhotoId = vehicleFile ? await uploadPhoto(vehicleFile, "vehicles") : undefined;
@@ -254,39 +415,70 @@ export function VehiclesPage() {
         photoIds: [...draft.photoIds, ...uploadedExtras],
         insuranceStart: draft.insuranceStart,
         insuranceEnd: draft.insuranceEnd,
-        pucExpiry: draft.pucExpiry,
-        fitnessExpiry: draft.fitnessExpiry,
+        fahasExpiry: draft.fahasExpiry,
         ...(platePhotoId ? { platePhotoId } : {}),
         ...(vehiclePhotoId ? { vehiclePhotoId } : {}),
       };
-      const saved = draft.id
-        ? await api<{ data: { id: string } }>(`/vehicles/${draft.id}`, { method: "PATCH", body })
-        : await api<{ data: { id: string } }>("/vehicles", { method: "POST", body });
-      const vehicleId = saved.data.id;
-      const previous = vehicles.data?.data.find((item) => item.id === vehicleId)?.currentDriverId ?? "";
-      if (draft.driverId && draft.driverId !== previous) {
-        await api(`/drivers/${draft.driverId}/assign`, {
-          method: "POST",
-          body: { vehicleId, date: new Date().toISOString(), odometerKm: draft.odometerKm },
-        });
-      } else if (!draft.driverId && previous) {
-        await api(`/drivers/${previous}/unassign`, { method: "POST", body: { date: new Date().toISOString() } });
+      let vehicleId = draft.id ?? "";
+      try {
+        const saved = draft.id
+          ? await api<{ data: { id: string } }>(`/vehicles/${draft.id}`, { method: "PATCH", body })
+          : await api<{ data: { id: string } }>("/vehicles", { method: "POST", body });
+        vehicleId = saved.data.id;
+        const previous = vehicles.data?.data.find((item) => item.id === vehicleId)?.currentDriverId ?? "";
+        if (driverId && driverId !== previous) {
+          await api(`/drivers/${driverId}/assign`, {
+            method: "POST",
+            body: { vehicleId, date: new Date().toISOString(), odometerKm: draft.odometerKm },
+          });
+        } else if (!driverId && previous) {
+          await api(`/drivers/${previous}/unassign`, { method: "POST", body: { date: new Date().toISOString() } });
+        }
+        if (wantsEmi) {
+          await api("/emi/plans", {
+            method: "POST",
+            body: {
+              vehicleId,
+              bank: emi.bank.trim(),
+              loanAmount: loan,
+              downPayment: down,
+              interestRate: interest,
+              tenureMonths: tenure,
+              startDate: emi.startDate,
+              dueDay,
+            },
+          });
+        }
+      } catch (err) {
+        if (!draft.id && vehicleId) {
+          setDraft({ ...draft, id: vehicleId, driverId });
+        } else if (driverId !== draft.driverId) {
+          setDraft({ ...draft, driverId });
+        }
+        throw err;
       }
     },
     onSuccess: async () => {
       setDraft(null);
+      setEmi(blankEmi());
+      setEmiLocked(false);
       setPlateFile(null);
       setVehicleFile(null);
       setExtraFiles([]);
+      setNewDriver(blankDriver());
+      setDriverFiles([]);
       await client.invalidateQueries({ queryKey: ["vehicles"] });
+      await client.invalidateQueries({ queryKey: ["driver-options"] });
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : "Could not save the vehicle"),
   });
 
   const remove = useMutation({
     mutationFn: (id: string) => api(`/vehicles/${id}`, { method: "DELETE" }),
-    onSuccess: async () => {
+    onSuccess: async (_result, id) => {
       setConfirmId("");
+      setError("");
+      setDraft((current) => (current?.id === id ? null : current));
       await client.invalidateQueries({ queryKey: ["vehicles"] });
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : "Could not delete the vehicle"),
@@ -310,6 +502,7 @@ export function VehiclesPage() {
   }, [vehicles.data, search, fuel, driverFilter, insuranceFilter]);
 
   const filtersOn = Boolean(search || fuel || driverFilter || insuranceFilter);
+  const deleting = vehicles.data?.data.find((vehicle) => vehicle.id === confirmId);
 
   function clearFilters() {
     setSearch("");
@@ -329,7 +522,7 @@ export function VehiclesPage() {
       <PageHeader title="Vehicles">
         <Button onClick={openAdd}>Add vehicle</Button>
       </PageHeader>
-      <div className="mb-4 rounded-md border border-line bg-card p-4">
+      <div className="mb-4 rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)]">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <Field label="Search">
             <TextInput placeholder="Name, number, model, color, driver" value={search} onChange={(event) => setSearch(event.target.value)} />
@@ -364,15 +557,15 @@ export function VehiclesPage() {
         <div className="mt-3 flex items-center justify-between text-sm">
           <p className="text-muted">{filtered.length} {filtered.length === 1 ? "vehicle" : "vehicles"}</p>
           {filtersOn ? (
-            <button type="button" className="text-accent" onClick={clearFilters}>Clear filters</button>
+            <button type="button" className="text-brand-deep hover:text-ink" onClick={clearFilters}>Clear filters</button>
           ) : null}
         </div>
       </div>
 
       {draft ? (
-        <form onSubmit={onSubmit} className="mb-4 rounded-md border border-line bg-card p-4">
-          <h2 className="text-base font-semibold">{draft.id ? "Edit vehicle" : "Add vehicle"}</h2>
-          <div className="mt-4 grid gap-4 lg:grid-cols-[280px_1fr]">
+        <Dialog title={draft.id ? "Edit vehicle" : "Add vehicle"} onClose={() => { if (!save.isPending) setDraft(null); }}>
+        <form onSubmit={onSubmit}>
+          <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
               <PhotoPicker label="Vehicle photo" file={vehicleFile} existingId={draft.vehiclePhotoId} onChange={setVehicleFile} />
               <PhotoPicker label="Number plate photo" file={plateFile} existingId={draft.platePhotoId} onChange={setPlateFile} />
@@ -381,7 +574,7 @@ export function VehiclesPage() {
                   <PhotoThumb fileId={id} label="Extra photo" />
                   <button
                     type="button"
-                    className="text-sm text-accent"
+                    className="text-sm text-brand-deep hover:text-ink"
                     onClick={() => setDraft({ ...draft, photoIds: draft.photoIds.filter((item) => item !== id) })}
                   >
                     Remove
@@ -439,24 +632,58 @@ export function VehiclesPage() {
               </Field>
               <Field label="Driver">
                 <SelectInput value={draft.driverId} onChange={(event) => setDraft({ ...draft, driverId: event.target.value })}>
-                  <option value="">No driver</option>
+                  <option value="">Select driver</option>
                   {drivers.data?.data.map((driver) => (
-                    <option key={driver.id} value={driver.id}>{driver.name}</option>
+                    <option key={driver.id} value={driver.id}>{driver.name} ({driver.mobileMasked})</option>
                   ))}
+                  <option value={ADD_DRIVER}>Add driver</option>
                 </SelectInput>
               </Field>
+              {draft.driverId === ADD_DRIVER ? (
+                <NewDriverFields
+                  driver={newDriver}
+                  files={driverFiles}
+                  onChange={setNewDriver}
+                  onFiles={setDriverFiles}
+                />
+              ) : draft.driverId ? (
+                <LinkedDriverDetails driver={linkedDriver.data?.data} loading={linkedDriver.isLoading} failed={linkedDriver.isError} />
+              ) : null}
               <Field label="Insurance start">
                 <DateField value={draft.insuranceStart} onChange={(insuranceStart) => setDraft({ ...draft, insuranceStart })} />
               </Field>
               <Field label="Insurance expiry">
                 <DateField value={draft.insuranceEnd} onChange={(insuranceEnd) => setDraft({ ...draft, insuranceEnd })} />
               </Field>
-              <Field label="Pollution (PUC) expiry">
-                <DateField value={draft.pucExpiry} onChange={(pucExpiry) => setDraft({ ...draft, pucExpiry })} />
+              <Field label="Fahas">
+                <DateField value={draft.fahasExpiry} onChange={(fahasExpiry) => setDraft({ ...draft, fahasExpiry })} />
               </Field>
-              <Field label="Fitness certificate expiry">
-                <DateField value={draft.fitnessExpiry} onChange={(fitnessExpiry) => setDraft({ ...draft, fitnessExpiry })} />
+              <div className="sm:col-span-2 mt-1 border-t border-line pt-3">
+                <h3 className="text-sm font-semibold">EMI</h3>
+                {emiLocked ? <p className="mt-1 text-sm text-muted">Payments are already recorded, so this schedule stays as it is.</p> : null}
+              </div>
+              <Field label="Bank">
+                <TextInput value={emi.bank} disabled={emiLocked} onChange={(event) => setEmi({ ...emi, bank: event.target.value })} />
               </Field>
+              <Field label="Loan amount (SAR)">
+                <TextInput value={emi.loanAmount} disabled={emiLocked} onChange={(event) => setEmi({ ...emi, loanAmount: event.target.value })} inputMode="decimal" />
+              </Field>
+              <Field label="Down payment (SAR)">
+                <TextInput value={emi.downPayment} disabled={emiLocked} onChange={(event) => setEmi({ ...emi, downPayment: event.target.value })} inputMode="decimal" />
+              </Field>
+              <Field label="Interest % per year">
+                <TextInput value={emi.interestRate} disabled={emiLocked} onChange={(event) => setEmi({ ...emi, interestRate: event.target.value })} inputMode="decimal" />
+              </Field>
+              <Field label="Tenure (months)">
+                <TextInput value={emi.tenureMonths} disabled={emiLocked} onChange={(event) => setEmi({ ...emi, tenureMonths: event.target.value })} inputMode="numeric" />
+              </Field>
+              <Field label="Start date">
+                <DateField value={emi.startDate} onChange={(startDate) => { if (!emiLocked) setEmi({ ...emi, startDate }); }} />
+              </Field>
+              <Field label="Due day (1 to 28)">
+                <TextInput value={emi.dueDay} disabled={emiLocked} onChange={(event) => setEmi({ ...emi, dueDay: event.target.value })} inputMode="numeric" />
+              </Field>
+              <EmiSummary emi={emi} />
               <div className="sm:col-span-2">
                 <Field label="Note">
                   <TextArea value={draft.note} maxLength={2000} onChange={(event) => setDraft({ ...draft, note: event.target.value })} />
@@ -470,17 +697,18 @@ export function VehiclesPage() {
             </div>
           </div>
         </form>
+        </Dialog>
       ) : null}
 
       {vehicles.isLoading ? <StateMessage>Loading vehicles...</StateMessage> : null}
       {vehicles.isError ? <StateMessage>{vehicles.error instanceof ApiError ? vehicles.error.message : "Could not load vehicles."}</StateMessage> : null}
       {vehicles.data?.data.length === 0 ? <StateMessage>No vehicles yet.</StateMessage> : null}
       {vehicles.data && vehicles.data.data.length > 0 && filtered.length === 0 ? <StateMessage>No vehicles match these filters.</StateMessage> : null}
-      {error && !draft ? <p className="mb-3 text-sm text-status-danger">{error}</p> : null}
+      {error && !draft && !confirmId ? <p className="mb-3 text-sm text-status-danger">{error}</p> : null}
 
       <ul className="space-y-3">
         {filtered.map((vehicle) => (
-          <li key={vehicle.id} className="rounded-md border border-line bg-card p-4">
+          <li key={vehicle.id} className="rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)]">
             <div className="grid gap-4 md:grid-cols-[180px_1fr]">
               <div className="grid grid-cols-2 gap-2 md:grid-cols-1">
                 <PhotoThumb fileId={vehicle.vehiclePhotoId} label="Vehicle" />
@@ -489,25 +717,20 @@ export function VehiclesPage() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <Link className="text-base font-semibold text-accent" to={`/vehicles/${vehicle.id}`}>{vehicle.name}</Link>
-                    <p className="mt-1 text-sm font-medium">{vehicle.plateNumber}</p>
+                    <Link className="text-base font-semibold text-ink hover:text-brand-deep" to={`/vehicles/${vehicle.id}`}>{vehicle.name}</Link>
+                    <p className="mt-1 inline-flex rounded-md bg-brand-soft px-2 py-0.5 text-sm font-medium text-ink">{vehicle.plateNumber}</p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button variant="secondary" onClick={() => openEdit(vehicle)}>Edit</Button>
-                    {confirmId === vehicle.id ? (
-                      <Button variant="danger" disabled={remove.isPending} onClick={() => remove.mutate(vehicle.id)}>
-                        {remove.isPending ? "Deleting..." : "Confirm delete"}
-                      </Button>
-                    ) : (
-                      <Button variant="secondary" onClick={() => setConfirmId(vehicle.id)}>Delete</Button>
-                    )}
+                    <Button variant="secondary" className="text-status-danger hover:border-status-danger" onClick={() => { setError(""); setConfirmId(vehicle.id); }}>Delete</Button>
                   </div>
                 </div>
-                <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                <dl className="mt-3 grid gap-3 rounded-md bg-canvas p-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
                   <div><dt className="text-muted">Model</dt><dd>{vehicle.model}</dd></div>
                   <div><dt className="text-muted">Color</dt><dd>{vehicle.color}</dd></div>
                   <div><dt className="text-muted">Fuel</dt><dd>{vehicle.fuelType.label}</dd></div>
                   <div><dt className="text-muted">Driver</dt><dd>{vehicle.currentDriverName ?? "Unassigned"}</dd></div>
+                  <div><dt className="text-muted">Fahas</dt><dd>{formatDate(vehicle.fahasExpiry || vehicle.pucExpiry || vehicle.fitnessExpiry) || "Not recorded"}</dd></div>
                   <div className="sm:col-span-2">
                     <dt className="text-muted">Insurance</dt>
                     <dd className="mt-0.5 flex flex-wrap items-center gap-2">
@@ -529,6 +752,174 @@ export function VehiclesPage() {
           </li>
         ))}
       </ul>
+      {confirmId ? (
+        <Dialog title="Confirm delete" onClose={() => { if (!remove.isPending) setConfirmId(""); }}>
+          <p className="text-sm leading-6 text-ink">
+            Delete {deleting?.name || "this vehicle"}{deleting?.plateNumber ? `, ${deleting.plateNumber}` : ""}? The vehicle record will be removed.
+          </p>
+          {error ? <p className="mt-3 text-sm text-status-danger">{error}</p> : null}
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Button variant="danger" disabled={remove.isPending} onClick={() => remove.mutate(confirmId)}>
+              {remove.isPending ? "Deleting..." : "Confirm delete"}
+            </Button>
+            <Button type="button" variant="secondary" disabled={remove.isPending} onClick={() => setConfirmId("")}>Cancel</Button>
+          </div>
+        </Dialog>
+      ) : null}
+    </div>
+  );
+}
+
+function NewDriverFields({
+  driver,
+  files,
+  onChange,
+  onFiles,
+}: {
+  driver: NewDriver;
+  files: File[];
+  onChange: (driver: NewDriver) => void;
+  onFiles: (files: File[]) => void;
+}) {
+  return (
+    <div className="grid gap-3 rounded-md border border-line bg-canvas p-3 sm:col-span-2 sm:grid-cols-2">
+      <p className="text-sm font-medium sm:col-span-2">Add driver</p>
+      <Field label="Name">
+        <TextInput value={driver.name} onChange={(event) => onChange({ ...driver, name: event.target.value })} required />
+      </Field>
+      <Field label="Mobile">
+        <TextInput value={driver.mobile} placeholder="+966 5X XXX XXXX" onChange={(event) => onChange({ ...driver, mobile: event.target.value })} required />
+      </Field>
+      <Field label="Employee ID">
+        <TextInput value={driver.employeeId} onChange={(event) => onChange({ ...driver, employeeId: event.target.value })} />
+      </Field>
+      <Field label="Status">
+        <SelectInput value={driver.status} onChange={(event) => onChange({ ...driver, status: event.target.value })}>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </SelectInput>
+      </Field>
+      <Field label="Iqama number">
+        <TextInput inputMode="numeric" value={driver.iqamaNumber} placeholder="10 digits" onChange={(event) => onChange({ ...driver, iqamaNumber: event.target.value })} required />
+      </Field>
+      <Field label="Iqama expiry">
+        <DateField value={driver.iqamaExpiry} onChange={(iqamaExpiry) => onChange({ ...driver, iqamaExpiry })} />
+      </Field>
+      <Field label="License number">
+        <TextInput value={driver.licenseNumber} onChange={(event) => onChange({ ...driver, licenseNumber: event.target.value })} required />
+      </Field>
+      <Field label="License type">
+        <SelectInput value={driver.licenseType} onChange={(event) => onChange({ ...driver, licenseType: event.target.value })}>
+          {licenseTypes.map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </SelectInput>
+      </Field>
+      <Field label="License expiry">
+        <DateField value={driver.licenseExpiry} onChange={(licenseExpiry) => onChange({ ...driver, licenseExpiry })} />
+      </Field>
+      <label className="flex items-start gap-3 rounded-md border border-line bg-card p-3 sm:col-span-2">
+        <input
+          type="checkbox"
+          className="mt-1 h-4 w-4 accent-brand"
+          checked={driver.portalAccess}
+          onChange={(event) => onChange({ ...driver, portalAccess: event.target.checked })}
+        />
+        <span>
+          <span className="block text-sm font-medium text-ink">Allow sign-in</span>
+          <span className="mt-1 block text-xs leading-5 text-muted">The driver can sign in with their mobile number and a code. Leave this off unless they need the portal.</span>
+        </span>
+      </label>
+      <div className="sm:col-span-2">
+        <p className="text-sm font-medium">Documents</p>
+        <p className="mt-1 text-xs text-muted">Iqama, license, or other files. PDF, images, and common documents, up to 10 MB each.</p>
+        {files.length > 0 ? (
+          <ul className="mt-2 space-y-1 text-sm">
+            {files.map((file, index) => (
+              <li key={`${file.name}-${file.size}-${index}`} className="flex items-center justify-between gap-3">
+                <span className="truncate">{file.name}</span>
+                <button type="button" className="text-xs text-status-danger" onClick={() => onFiles(files.filter((_, item) => item !== index))}>Remove</button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <label className="mt-3 inline-flex cursor-pointer items-center rounded-md border border-line bg-card px-3 py-2 text-sm">
+          Add documents
+          <input
+            className="sr-only"
+            type="file"
+            multiple
+            onChange={(event) => {
+              onFiles([...files, ...Array.from(event.target.files ?? [])]);
+              event.target.value = "";
+            }}
+          />
+        </label>
+      </div>
+      <p className="text-xs text-muted sm:col-span-2">This creates the same driver record used on Drivers, then links it to this vehicle.</p>
+    </div>
+  );
+}
+
+function LinkedDriverDetails({ driver, loading, failed }: { driver?: LinkedDriver; loading: boolean; failed: boolean }) {
+  if (loading) return <p className="text-sm text-muted sm:col-span-2">Loading driver...</p>;
+  if (failed || !driver) return <p className="text-sm text-status-danger sm:col-span-2">Could not load this driver.</p>;
+  const rows: [string, string][] = [
+    ["Name", driver.name],
+    ["Mobile", driver.mobile || ""],
+    ["Employee ID", driver.employeeId || ""],
+    ["Status", driver.status.label],
+    ["Iqama number", driver.iqamaNumber || ""],
+    ["Iqama expiry", formatDate(driver.iqamaExpiry)],
+    ["License number", driver.licenseNumber || ""],
+    ["License type", driver.licenseType.label],
+    ["License expiry", formatDate(driver.licenseExpiry)],
+  ];
+  return (
+    <div className="grid gap-3 rounded-md border border-line bg-canvas p-3 sm:col-span-2 sm:grid-cols-2">
+      <p className="text-sm font-medium sm:col-span-2">Driver details</p>
+      {rows.map(([label, value]) => (
+        <div key={label}>
+          <p className="text-xs text-muted">{label}</p>
+          <p className="text-sm">{value || "-"}</p>
+        </div>
+      ))}
+      <p className="text-xs text-muted sm:col-span-2">This vehicle is linked to the existing driver record. Add or edit drivers from Drivers.</p>
+    </div>
+  );
+}
+
+function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previous;
+    };
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-3 sm:items-center sm:p-6" onMouseDown={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="max-h-[min(92vh,900px)] w-full max-w-4xl overflow-y-auto rounded-lg border border-line bg-card p-4 shadow-[0_16px_40px_rgba(17,22,16,0.16)] sm:p-5"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-base font-semibold text-ink">{title}</h2>
+          <button type="button" className="h-9 shrink-0 rounded-md px-3 text-sm font-medium text-brand-deep hover:bg-brand-soft hover:text-ink" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <div className="mt-4">{children}</div>
+      </div>
     </div>
   );
 }

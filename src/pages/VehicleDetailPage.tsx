@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Badge, Button, DataTable, Field, PageHeader, Panel, SelectInput, StateMessage, TextInput } from "../components/ui";
+import { DateField } from "../components/DateField";
+import { Badge, Button, DataTable, Field, PageHeader, Panel, SelectInput, StateMessage, Tabs, TextInput } from "../components/ui";
 import { ApiError, api } from "../lib/api";
+import { emiPreview } from "../lib/emi";
 import { formatDate, formatKm, formatSar } from "../lib/format";
 import type { ListResponse, Money, Status } from "../types";
 
@@ -50,16 +52,8 @@ export function VehicleDetailPage() {
       <p className="mb-4 text-sm text-muted">
         {record.make} {record.model} · {record.year} · {record.color} · {record.fuelType.label} · {record.ownership.label} · {formatKm(record.odometerKm)} · VIN {record.vin}
       </p>
-      <div className="mb-4 flex gap-2 overflow-x-auto">
-        {tabs.map((item) => (
-          <button
-            key={item}
-            className={`rounded-md px-3 py-2 text-sm ${tab === item ? "bg-brand text-white" : "border border-line bg-card"}`}
-            onClick={() => setTab(item)}
-          >
-            {item}
-          </button>
-        ))}
+      <div className="mb-4">
+        <Tabs label="Vehicle sections" value={tab} options={tabs.map((item) => ({ id: item, label: item }))} onChange={(id) => setTab(id as (typeof tabs)[number])} />
       </div>
       {tab === "Overview" ? <Overview record={record} /> : null}
       {tab === "Maintenance" ? <MaintenanceTab vehicleId={id} /> : null}
@@ -164,7 +158,7 @@ function MaintenanceTab({ vehicleId }: { vehicleId: string }) {
   });
   return (
     <div className="space-y-4">
-      <form className="grid gap-3 rounded-md border border-line bg-card p-4 md:grid-cols-4" onSubmit={(event: FormEvent) => { event.preventDefault(); saveSchedule.mutate(); }}>
+      <form className="grid gap-3 rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)] md:grid-cols-4" onSubmit={(event: FormEvent) => { event.preventDefault(); saveSchedule.mutate(); }}>
         <Field label="Service type"><TextInput value={form.serviceType} onChange={(event) => setForm({ ...form, serviceType: event.target.value })} required /></Field>
         <Field label="Every months"><TextInput value={form.intervalMonths} onChange={(event) => setForm({ ...form, intervalMonths: event.target.value })} required /></Field>
         <Field label="Every km"><TextInput value={form.intervalKm} onChange={(event) => setForm({ ...form, intervalKm: event.target.value })} required /></Field>
@@ -177,7 +171,7 @@ function MaintenanceTab({ vehicleId }: { vehicleId: string }) {
           rows={schedules.data.data.map((row) => [row.serviceType, formatDate(row.nextDueDate), formatKm(row.nextDueKm), <Badge key={row.id} code={row.status.code} label={row.status.label} />])}
         />
       ) : <StateMessage>Loading schedules...</StateMessage>}
-      <form className="grid gap-3 rounded-md border border-line bg-card p-4 md:grid-cols-3" onSubmit={(event) => { event.preventDefault(); saveLog.mutate(); }}>
+      <form className="grid gap-3 rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)] md:grid-cols-3" onSubmit={(event) => { event.preventDefault(); saveLog.mutate(); }}>
         <Field label="Service date"><TextInput type="date" value={log.date} onChange={(event) => setLog({ ...log, date: event.target.value })} required /></Field>
         <Field label="Odometer"><TextInput value={log.odometerKm} onChange={(event) => setLog({ ...log, odometerKm: event.target.value })} required /></Field>
         <Field label="Cost (SAR)"><TextInput value={log.cost} onChange={(event) => setLog({ ...log, cost: event.target.value })} required /></Field>
@@ -213,7 +207,7 @@ function IstimaraTab({ vehicleId }: { vehicleId: string }) {
   });
   return (
     <div className="space-y-4">
-      <form className="grid gap-3 rounded-md border border-line bg-card p-4 md:grid-cols-4" onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
+      <form className="grid gap-3 rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)] md:grid-cols-4" onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
         <Field label="Number"><TextInput value={form.number} onChange={(event) => setForm({ ...form, number: event.target.value })} required /></Field>
         <Field label="Issue date"><TextInput type="date" value={form.issueDate} onChange={(event) => setForm({ ...form, issueDate: event.target.value })} required /></Field>
         <Field label="Expiry date"><TextInput type="date" value={form.expiryDate} onChange={(event) => setForm({ ...form, expiryDate: event.target.value })} required /></Field>
@@ -237,7 +231,7 @@ function InsuranceTab({ vehicleId }: { vehicleId: string }) {
   });
   return (
     <div className="space-y-4">
-      <form className="grid gap-3 rounded-md border border-line bg-card p-4 md:grid-cols-3" onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
+      <form className="grid gap-3 rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)] md:grid-cols-3" onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
         <Field label="Policy number"><TextInput value={form.policyNumber} onChange={(event) => setForm({ ...form, policyNumber: event.target.value })} required /></Field>
         <Field label="Insurer"><TextInput value={form.insurer} onChange={(event) => setForm({ ...form, insurer: event.target.value })} required /></Field>
         <Field label="Type">
@@ -259,44 +253,61 @@ function InsuranceTab({ vehicleId }: { vehicleId: string }) {
 
 function EmiTab({ vehicleId }: { vehicleId: string }) {
   const client = useQueryClient();
-  const plans = useList<{ id: string; bank: string; monthlyAmount: Money; totalPaid: Money; remaining: Money; installmentsLeft: number }>("emi-" + vehicleId, `/emi/plans?vehicleId=${vehicleId}`);
-  const [form, setForm] = useState({ bank: "", loanAmount: "", downPayment: "0", monthlyAmount: "", tenureMonths: "36", startDate: "", dueDay: "1" });
+  const plans = useList<{ id: string; bank: string; loanAmount: Money; downPayment: Money; interestRate: number; monthlyAmount: Money; totalPaid: Money; remaining: Money; nextDue: string | null; tenureMonths: number; installmentsLeft: number; status: Status; vehicleId: string }>("emi-" + vehicleId, `/emi/plans?vehicleId=${vehicleId}`);
+  const [form, setForm] = useState({ bank: "", loanAmount: "", downPayment: "0", interestRate: "0", tenureMonths: "36", startDate: "", dueDay: "1" });
   const [error, setError] = useState<unknown>(null);
+  const locked = plans.data?.data.some((plan) => plan.installmentsLeft < plan.tenureMonths) ?? false;
+  const preview = emiPreview(Number(form.loanAmount), Number(form.downPayment || 0), Number(form.interestRate || 0), Number(form.tenureMonths));
   const save = useMutation({
-    mutationFn: () => api("/emi/plans", { method: "POST", body: { vehicleId, ...form, loanAmount: Number(form.loanAmount), downPayment: Number(form.downPayment), monthlyAmount: Number(form.monthlyAmount), tenureMonths: Number(form.tenureMonths), dueDay: Number(form.dueDay) } }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["emi-" + vehicleId] }),
+    mutationFn: () => api("/emi/plans", { method: "POST", body: { vehicleId, bank: form.bank, loanAmount: Number(form.loanAmount), downPayment: Number(form.downPayment || 0), interestRate: Number(form.interestRate || 0), tenureMonths: Number(form.tenureMonths), startDate: form.startDate, dueDay: Number(form.dueDay) } }),
+    onSuccess: async () => {
+      setForm({ bank: "", loanAmount: "", downPayment: "0", interestRate: "0", tenureMonths: "36", startDate: "", dueDay: "1" });
+      setError(null);
+      await client.invalidateQueries({ queryKey: ["emi-" + vehicleId] });
+      await client.invalidateQueries({ queryKey: ["emi-list"] });
+    },
     onError: setError,
   });
   return (
     <div className="space-y-4">
-      <form className="grid gap-3 rounded-md border border-line bg-card p-4 md:grid-cols-3" onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
-        <Field label="Bank"><TextInput value={form.bank} onChange={(event) => setForm({ ...form, bank: event.target.value })} required /></Field>
-        <Field label="Loan amount (SAR)"><TextInput value={form.loanAmount} onChange={(event) => setForm({ ...form, loanAmount: event.target.value })} required /></Field>
-        <Field label="Down payment (SAR)"><TextInput value={form.downPayment} onChange={(event) => setForm({ ...form, downPayment: event.target.value })} required /></Field>
-        <Field label="Monthly (SAR)"><TextInput value={form.monthlyAmount} onChange={(event) => setForm({ ...form, monthlyAmount: event.target.value })} required /></Field>
-        <Field label="Tenure (months)"><TextInput value={form.tenureMonths} onChange={(event) => setForm({ ...form, tenureMonths: event.target.value })} required /></Field>
-        <Field label="Start date"><TextInput type="date" value={form.startDate} onChange={(event) => setForm({ ...form, startDate: event.target.value })} required /></Field>
-        <Field label="Due day"><TextInput value={form.dueDay} onChange={(event) => setForm({ ...form, dueDay: event.target.value })} required /></Field>
-        <div className="flex items-end"><Button>Create schedule</Button></div>
-      </form>
+      {locked ? <StateMessage>Payments are already recorded, so this schedule stays as it is.</StateMessage> : (
+        <form className="grid gap-3 rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)] md:grid-cols-3" onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
+          <Field label="Bank"><TextInput value={form.bank} onChange={(event) => setForm({ ...form, bank: event.target.value })} required /></Field>
+          <Field label="Loan amount (SAR)"><TextInput value={form.loanAmount} onChange={(event) => setForm({ ...form, loanAmount: event.target.value })} required /></Field>
+          <Field label="Down payment (SAR)"><TextInput value={form.downPayment} onChange={(event) => setForm({ ...form, downPayment: event.target.value })} required /></Field>
+          <Field label="Interest % per year"><TextInput value={form.interestRate} onChange={(event) => setForm({ ...form, interestRate: event.target.value })} required /></Field>
+          <Field label="Tenure (months)"><TextInput value={form.tenureMonths} onChange={(event) => setForm({ ...form, tenureMonths: event.target.value })} required /></Field>
+          <Field label="Start date"><DateField value={form.startDate} onChange={(startDate) => setForm({ ...form, startDate })} /></Field>
+          <Field label="Due day (1 to 28)"><TextInput value={form.dueDay} onChange={(event) => setForm({ ...form, dueDay: event.target.value })} required /></Field>
+          <div className="flex items-end"><Button disabled={!preview || !form.startDate || !form.bank.trim() || save.isPending}>{plans.data?.data.length ? "Replace schedule" : "Create schedule"}</Button></div>
+          {preview ? <p className="text-sm text-muted md:col-span-3">Financed {formatSar({ halalas: preview.financedHalalas })}. Monthly {formatSar({ halalas: preview.monthlyHalalas })}.{preview.lastHalalas === preview.monthlyHalalas ? "" : ` Last installment ${formatSar({ halalas: preview.lastHalalas })}.`}</p> : null}
+        </form>
+      )}
       <ErrorText error={error} />
-      {plans.data?.data.map((plan) => <Installments key={plan.id} plan={plan} />)}
+      {plans.data?.data.map((plan) => <Installments key={plan.id} plan={plan} vehicleId={vehicleId} />)}
       {plans.data?.data.length === 0 ? <StateMessage>No EMI plan for this vehicle.</StateMessage> : null}
     </div>
   );
 }
 
-function Installments({ plan }: { plan: { id: string; bank: string; monthlyAmount: Money; totalPaid: Money; remaining: Money; installmentsLeft: number } }) {
+function Installments({ plan, vehicleId }: { plan: { id: string; bank: string; loanAmount: Money; monthlyAmount: Money; totalPaid: Money; remaining: Money; nextDue: string | null; installmentsLeft: number; status: Status }; vehicleId: string }) {
   const client = useQueryClient();
   const rows = useQuery({ queryKey: ["inst", plan.id], queryFn: () => api<{ data: Array<{ id: string; seq: number; dueDate: string; amount: Money; status: Status }> }>(`/emi/plans/${plan.id}/installments`) });
   const mark = useMutation({
     mutationFn: (id: string) => api(`/emi/installments/${id}`, { method: "PATCH", body: { status: "paid" } }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["inst", plan.id] }),
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: ["inst", plan.id] });
+      await client.invalidateQueries({ queryKey: ["emi-" + vehicleId] });
+      await client.invalidateQueries({ queryKey: ["emi-list"] });
+    },
   });
   return (
     <Panel className="p-4">
-      <p className="text-sm font-semibold">{plan.bank}</p>
-      <p className="mt-1 text-sm text-muted">Paid {formatSar(plan.totalPaid)} · Remaining {formatSar(plan.remaining)} · {plan.installmentsLeft} left</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-semibold">{plan.bank}</p>
+        <Badge code={plan.status.code} label={plan.status.label} />
+      </div>
+      <p className="mt-1 text-sm text-muted">Loan {formatSar(plan.loanAmount)}. Monthly {formatSar(plan.monthlyAmount)}. Paid {formatSar(plan.totalPaid)}. Remaining {formatSar(plan.remaining)}. Next due {formatDate(plan.nextDue) || "None"}. {plan.installmentsLeft} left.</p>
       {rows.data ? (
         <div className="mt-3">
           <DataTable
@@ -359,7 +370,7 @@ function SimpleLog({
   });
   return (
     <div className="space-y-4">
-      <form className="grid gap-3 rounded-md border border-line bg-card p-4 md:grid-cols-3" onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
+      <form className="grid gap-3 rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)] md:grid-cols-3" onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
         {path === "/expenses" ? (
           <Field label="Category">
             <SelectInput value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}>

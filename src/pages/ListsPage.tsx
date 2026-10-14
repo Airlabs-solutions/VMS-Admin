@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Badge, Button, DataTable, PageHeader, StateMessage } from "../components/ui";
+import { Badge, Button, DataTable, PageHeader, StateMessage, linkClass } from "../components/ui";
 import { api, download } from "../lib/api";
 import { formatDate, formatKm, formatSar } from "../lib/format";
 import type { ListResponse, Money, Status } from "../types";
@@ -30,7 +30,7 @@ export function MaintenanceListPage() {
         <DataTable
           columns={["Plate", "Service", "Next date", "Next km", "Status"]}
           rows={rows.data.data.map((row) => [
-            <Link key={row.id} className="text-accent" to={`/vehicles/${row.vehicleId}`}>{row.plateNumber}</Link>,
+            <Link key={row.id} className={linkClass} to={`/vehicles/${row.vehicleId}`}>{row.plateNumber}</Link>,
             row.serviceType,
             formatDate(row.nextDueDate),
             formatKm(row.nextDueKm),
@@ -54,7 +54,7 @@ export function InsuranceListPage() {
         <DataTable
           columns={["Plate", "Insurer", "Policy", "Start", "Expiry", "Premium", "Status"]}
           rows={rows.data.data.map((row) => [
-            <Link key={row.id} className="text-accent" to={`/vehicles/${row.vehicleId}`}>{row.plateNumber}</Link>,
+            <Link key={row.id} className={linkClass} to={`/vehicles/${row.vehicleId}`}>{row.plateNumber}</Link>,
             row.insurer,
             row.policyNumber,
             formatDate(row.startDate),
@@ -71,23 +71,27 @@ export function InsuranceListPage() {
 export function EmiListPage() {
   const rows = useQuery({
     queryKey: ["emi-list"],
-    queryFn: () => api<ListResponse<{ id: string; plateNumber: string; bank: string; monthlyAmount: Money; remaining: Money; installmentsLeft: number; vehicleId: string }>>("/emi/plans?limit=100"),
+    queryFn: () => api<ListResponse<{ id: string; plateNumber: string; bank: string; loanAmount: Money; monthlyAmount: Money; remaining: Money; nextDue: string | null; installmentsLeft: number; status: Status; vehicleId: string }>>("/emi/plans?limit=100"),
   });
   return (
     <Frame title="EMI" exportPath="/emi/export.xlsx">
-      {rows.data?.data.length === 0 ? <StateMessage>No EMI plans yet.</StateMessage> : null}
+      {rows.isLoading ? <StateMessage>Loading EMI plans...</StateMessage> : null}
+      {rows.isError ? <StateMessage>Could not load EMI plans.</StateMessage> : null}
+      {rows.data?.data.length === 0 ? <StateMessage>No EMI plans yet. Add one from a vehicle.</StateMessage> : null}
       {rows.data && rows.data.data.length > 0 ? (
         <DataTable
-          columns={["Plate", "Bank", "Monthly", "Remaining", "Left"]}
+          columns={["Plate", "Bank", "Loan", "Monthly", "Next due", "Remaining", "Status"]}
           rows={rows.data.data.map((row) => [
-            <Link key={row.id} className="text-accent" to={`/vehicles/${row.vehicleId}`}>{row.plateNumber}</Link>,
+            <Link key={row.id} className={linkClass} to={`/vehicles/${row.vehicleId}`}>{row.plateNumber}</Link>,
             row.bank,
+            formatSar(row.loanAmount),
             formatSar(row.monthlyAmount),
+            formatDate(row.nextDue),
             formatSar(row.remaining),
-            String(row.installmentsLeft),
+            <Badge key={`${row.id}-s`} code={row.status.code} label={row.status.label} />,
           ])}
         />
-      ) : rows.isLoading ? <StateMessage>Loading EMI plans...</StateMessage> : null}
+      ) : null}
     </Frame>
   );
 }
@@ -104,7 +108,7 @@ export function FuelListPage() {
         <DataTable
           columns={["Plate", "Date", "Liters", "Cost", "Approval"]}
           rows={rows.data.data.map((row) => [
-            <Link key={row.id} className="text-accent" to={`/vehicles/${row.vehicleId}`}>{row.plateNumber}</Link>,
+            <Link key={row.id} className={linkClass} to={`/vehicles/${row.vehicleId}`}>{row.plateNumber}</Link>,
             formatDate(row.date),
             String(row.liters),
             formatSar(row.cost),
@@ -128,7 +132,7 @@ export function ViolationListPage() {
         <DataTable
           columns={["Plate", "Number", "Date", "Amount", "Status"]}
           rows={rows.data.data.map((row) => [
-            <Link key={row.id} className="text-accent" to={`/vehicles/${row.vehicleId}`}>{row.plateNumber}</Link>,
+            <Link key={row.id} className={linkClass} to={`/vehicles/${row.vehicleId}`}>{row.plateNumber}</Link>,
             row.number,
             formatDate(row.date),
             formatSar(row.amount),
@@ -152,7 +156,7 @@ export function TripListPage() {
         <DataTable
           columns={["Plate", "Date", "From", "To", "Distance"]}
           rows={rows.data.data.map((row) => [
-            <Link key={row.id} className="text-accent" to={`/vehicles/${row.vehicleId}`}>{row.plateNumber}</Link>,
+            <Link key={row.id} className={linkClass} to={`/vehicles/${row.vehicleId}`}>{row.plateNumber}</Link>,
             formatDate(row.date),
             row.startLocation,
             row.endLocation,
@@ -176,7 +180,7 @@ export function ExpenseListPage() {
         <DataTable
           columns={["Plate", "Date", "Category", "Amount"]}
           rows={rows.data.data.map((row) => [
-            <Link key={row.id} className="text-accent" to={`/vehicles/${row.vehicleId}`}>{row.plateNumber}</Link>,
+            <Link key={row.id} className={linkClass} to={`/vehicles/${row.vehicleId}`}>{row.plateNumber}</Link>,
             formatDate(row.date),
             row.category.label,
             formatSar(row.amount),
