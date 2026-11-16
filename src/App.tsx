@@ -10,9 +10,17 @@ import { DriversPage } from "./pages/DriversPage";
 import { EmiListPage, FuelListPage, InsuranceListPage } from "./pages/ListsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MessagesPage } from "./pages/MessagesPage";
+import { PlatformPage } from "./pages/PlatformPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { VehicleDetailPage } from "./pages/VehicleDetailPage";
 import { VehiclesPage } from "./pages/VehiclesPage";
+import { EmployeeDetailPage, EmployeesPage, HrDashboardPage } from "./pages/HrPages";
+import {
+  EquipmentDashboardPage,
+  EquipmentDetailPage,
+  EquipmentListPage,
+  MobilizationBoardPage,
+} from "./pages/EquipmentPages";
 import type { SessionUser } from "./types";
 
 const client = new QueryClient({
@@ -58,6 +66,7 @@ export function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route element={<RequireAuth />}>
             <Route path="/" element={<Start />} />
+            <Route path="/platform" element={<PlatformPage />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/vehicles" element={<VehiclesPage />} />
             <Route path="/vehicles/:id" element={<VehicleDetailPage />} />
@@ -68,6 +77,13 @@ export function App() {
             <Route path="/fuel" element={<FuelListPage />} />
             <Route path="/alerts" element={<AlertsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/hr" element={<HrDashboardPage />} />
+            <Route path="/hr/employees" element={<EmployeesPage />} />
+            <Route path="/hr/employees/:id" element={<EmployeeDetailPage />} />
+            <Route path="/equipment" element={<EquipmentDashboardPage />} />
+            <Route path="/equipment/assets" element={<EquipmentListPage />} />
+            <Route path="/equipment/assets/:id" element={<EquipmentDetailPage />} />
+            <Route path="/equipment/mobilizations" element={<MobilizationBoardPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

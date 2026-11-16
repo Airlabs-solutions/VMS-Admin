@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Badge, Button, DataTable, PageHeader, StateMessage, linkClass } from "../components/ui";
-import { api, download } from "../lib/api";
+import { ApiError, api, download } from "../lib/api";
 import { formatDate, formatKm, formatSar } from "../lib/format";
 import type { ListResponse, Money, Status } from "../types";
 
@@ -68,27 +68,76 @@ export function InsuranceListPage() {
   );
 }
 
+type EmiRow = {
+  id: string;
+  vehicleName: string;
+  plateNumber: string;
+  bank: string;
+  monthlyAmount: Money;
+  balloonAmount: Money;
+  remaining: Money;
+  nextDue: string | null;
+  nextInstallmentId: string | null;
+  lastPaidInstallmentId: string | null;
+  installmentsLeft: number;
+  status: Status;
+  vehicleId: string;
+};
+
 export function EmiListPage() {
+  const client = useQueryClient();
   const rows = useQuery({
     queryKey: ["emi-list"],
-    queryFn: () => api<ListResponse<{ id: string; plateNumber: string; bank: string; loanAmount: Money; monthlyAmount: Money; remaining: Money; nextDue: string | null; installmentsLeft: number; status: Status; vehicleId: string }>>("/emi/plans?limit=100"),
+    queryFn: () => api<ListResponse<EmiRow>>("/emi/plans?limit=100"),
+  });
+  const mark = useMutation({
+    mutationFn: (input: { id: string; status: "paid" | "unpaid" }) => api(`/emi/installments/${input.id}`, { method: "PATCH", body: { status: input.status } }),
+    onSuccess: async () => {
+      await client.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey[0];
+          return key === "emi-list" || key === "unpaid" || key === "inst" || (typeof key === "string" && key.startsWith("emi-"));
+        },
+      });
+    },
   });
   return (
     <Frame title="EMI" exportPath="/emi/export.xlsx">
       {rows.isLoading ? <StateMessage>Loading EMI plans...</StateMessage> : null}
       {rows.isError ? <StateMessage>Could not load EMI plans.</StateMessage> : null}
+      {mark.isError ? <p className="mb-3 text-sm text-status-danger">{mark.error instanceof ApiError ? mark.error.message : "Could not update this EMI."}</p> : null}
       {rows.data?.data.length === 0 ? <StateMessage>No EMI plans yet. Add one from a vehicle.</StateMessage> : null}
       {rows.data && rows.data.data.length > 0 ? (
         <DataTable
-          columns={["Plate", "Bank", "Loan", "Monthly", "Next due", "Remaining", "Status"]}
+          columns={["Vehicle", "Bank", "EMI", "Balloon", "Next due", "Remaining", "Status", "Payment"]}
           rows={rows.data.data.map((row) => [
-            <Link key={row.id} className={linkClass} to={`/vehicles/${row.vehicleId}`}>{row.plateNumber}</Link>,
+            <span key={row.id} className="flex flex-col items-start gap-1">
+              <Link className={linkClass} to={`/vehicles/${row.vehicleId}?tab=EMI`}>{row.vehicleName || row.plateNumber}</Link>
+              {row.vehicleName ? <span className="text-sm text-ink">{row.plateNumber}</span> : null}
+              <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                <Link className={linkClass} to={`/vehicles/${row.vehicleId}?tab=EMI`}>Past EMIs</Link>
+                <Link className={linkClass} to={`/vehicles/${row.vehicleId}?tab=Istimara`}>Istimara</Link>
+                <Link className={linkClass} to={`/vehicles/${row.vehicleId}?tab=Insurance`}>Insurance</Link>
+              </span>
+            </span>,
             row.bank,
-            formatSar(row.loanAmount),
             formatSar(row.monthlyAmount),
-            formatDate(row.nextDue),
+            formatSar(row.balloonAmount),
+            formatDate(row.nextDue) || "None",
             formatSar(row.remaining),
             <Badge key={`${row.id}-s`} code={row.status.code} label={row.status.label} />,
+            <span key={`${row.id}-pay`} className="flex flex-col items-start gap-2">
+              {row.nextInstallmentId ? (
+                <Button variant="secondary" className="h-8 px-2.5" disabled={mark.isPending} onClick={() => mark.mutate({ id: row.nextInstallmentId as string, status: "paid" })}>
+                  {mark.isPending && mark.variables?.id === row.nextInstallmentId ? "Saving..." : "Mark paid"}
+                </Button>
+              ) : null}
+              {row.lastPaidInstallmentId ? (
+                <Button variant="secondary" className="h-8 px-2.5" disabled={mark.isPending} onClick={() => mark.mutate({ id: row.lastPaidInstallmentId as string, status: "unpaid" })}>
+                  {mark.isPending && mark.variables?.id === row.lastPaidInstallmentId ? "Saving..." : "Mark unpaid"}
+                </Button>
+              ) : null}
+            </span>,
           ])}
         />
       ) : null}

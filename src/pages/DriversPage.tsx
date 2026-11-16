@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DateField } from "../components/DateField";
+import { DocumentCapture } from "../components/DocumentCapture";
 import { Badge, Button, Field, PageHeader, SelectInput, StateMessage, TextInput } from "../components/ui";
 import { ApiError, api } from "../lib/api";
 import { cn } from "../lib/cn";
@@ -316,6 +317,25 @@ export function DriversPage() {
           {mode === "edit" ? (
             <DriverAvatar name={form.name || editor.data?.data.name || "Driver"} photoUrl={editor.data?.data.photoUrl} />
           ) : null}
+          <div className="mt-4">
+            <DocumentCapture
+              kind="driver_license"
+              title="Upload Driver License / Iqama (OCR Auto-Fill)"
+              onRead={(fileId, fields) => {
+                setForm((current) => ({
+                  ...current,
+                  name: fields.name || current.name,
+                  mobile: fields.mobile || current.mobile,
+                  iqamaNumber: fields.iqamaNumber || current.iqamaNumber,
+                  iqamaExpiry: fields.iqamaExpiry || current.iqamaExpiry,
+                  licenseNumber: fields.licenseNumber || current.licenseNumber,
+                  licenseType: fields.licenseType || current.licenseType,
+                  licenseExpiry: fields.licenseExpiry || current.licenseExpiry,
+                  fileIds: fileId && !current.fileIds.includes(fileId) ? [...current.fileIds, fileId] : current.fileIds,
+                }));
+              }}
+            />
+          </div>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <Field label="Name">
               <TextInput className={cn(fieldErrors.name && "border-status-danger")} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />

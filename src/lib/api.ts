@@ -25,7 +25,10 @@ export async function api<T>(path: string, options: { method?: string; body?: un
     body = JSON.stringify(options.body);
   }
 
-  const send = () => fetch(`/api/v1${path}`, { method, headers, body, credentials: "include" });
+  const send = () => {
+    if (method !== "GET" && method !== "HEAD") headers["x-csrf-token"] = csrfToken();
+    return fetch(`/api/v1${path}`, { method, headers, body, credentials: "include" });
+  };
   let response = await send();
   if (response.status === 401 && !path.startsWith("/auth/")) {
     const refresh = await fetch("/api/v1/auth/refresh", {

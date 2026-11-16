@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { DateField } from "../components/DateField";
+import { DocumentCapture, DocumentLink } from "../components/DocumentCapture";
 import { Badge, Button, DataTable, Field, PageHeader, Panel, SelectInput, StateMessage, Tabs, TextInput } from "../components/ui";
 import { ApiError, api } from "../lib/api";
-import { emiPreview } from "../lib/emi";
+import { emiSchedule, monthsRemaining } from "../lib/emi";
 import { formatDate, formatKm, formatSar } from "../lib/format";
 import type { ListResponse, Money, Status } from "../types";
 
@@ -24,17 +25,27 @@ type VehicleDetail = {
   ownership: Status;
   odometerKm: number;
   status: Status;
-  currentDriver: { id: string; name: string; mobileMasked: string } | null;
-  istimara: { number: string; expiryDate: string | null; status: Status } | null;
-  insurance: { policyNumber: string; insurer: string; startDate: string | null; endDate: string | null; status: Status } | null;
+  currentDriver: { id: string; name: string; mobileMasked: string; fileIds?: string[] } | null;
+  istimara: { number: string; expiryDate: string | null; status: Status; fileIds?: string[] } | null;
+  insurance: { policyNumber: string; insurer: string; startDate: string | null; endDate: string | null; status: Status; fileIds?: string[] } | null;
+  documents?: Array<{ kind: string; fileId: string; uploadedAt: string | null }>;
   maintenance: Array<{ id: string; serviceType: string; nextDueDate: string | null; nextDueKm: number; status: Status }>;
 };
 
 const tabs = ["Overview", "Maintenance", "Istimara", "Insurance", "EMI", "Fuel", "Violations", "Trips", "Expenses", "Handovers"] as const;
+type VehicleTab = (typeof tabs)[number];
+
+function vehicleTab(value: string | null): VehicleTab {
+  return tabs.find((item) => item === value) ?? "Overview";
+}
 
 export function VehicleDetailPage() {
   const { id = "" } = useParams();
-  const [tab, setTab] = useState<(typeof tabs)[number]>("Overview");
+  const [params, setParams] = useSearchParams();
+  const tab = vehicleTab(params.get("tab"));
+  function setTab(next: VehicleTab) {
+    setParams(next === "Overview" ? {} : { tab: next }, { replace: true });
+  }
   const vehicle = useQuery({
     queryKey: ["vehicle", id],
     queryFn: () => api<{ data: VehicleDetail }>(`/vehicles/${id}`),
@@ -53,7 +64,7 @@ export function VehicleDetailPage() {
         {record.make} {record.model} · {record.year} · {record.color} · {record.fuelType.label} · {record.ownership.label} · {formatKm(record.odometerKm)} · VIN {record.vin}
       </p>
       <div className="mb-4">
-        <Tabs label="Vehicle sections" value={tab} options={tabs.map((item) => ({ id: item, label: item }))} onChange={(id) => setTab(id as (typeof tabs)[number])} />
+        <Tabs label="Vehicle sections" value={tab} options={tabs.map((item) => ({ id: item, label: item }))} onChange={(id) => setTab(vehicleTab(id))} />
       </div>
       {tab === "Overview" ? <Overview record={record} /> : null}
       {tab === "Maintenance" ? <MaintenanceTab vehicleId={id} /> : null}
@@ -70,26 +81,58 @@ export function VehicleDetailPage() {
 }
 
 function Overview({ record }: { record: VehicleDetail }) {
+  const storedDocs = record.documents ?? [];
   return (
     <div className="grid gap-3 md:grid-cols-2">
       <Panel className="p-4 text-sm">
         <h2 className="font-semibold">Current driver</h2>
         <p className="mt-2">{record.currentDriver ? `${record.currentDriver.name} (${record.currentDriver.mobileMasked})` : "Unassigned"}</p>
+        {record.currentDriver?.fileIds && record.currentDriver.fileIds.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {record.currentDriver.fileIds.map((fid, i) => (
+              <span key={fid} className="inline-flex items-center gap-1 text-xs text-muted">
+                License/Iqama #{i + 1}: <DocumentLink id={fid} />
+              </span>
+            ))}
+          </div>
+        ) : null}
       </Panel>
       <Panel className="p-4 text-sm">
         <h2 className="font-semibold">Istimara</h2>
         {record.istimara ? (
-          <p className="mt-2 flex items-center gap-2">{record.istimara.number} · {formatDate(record.istimara.expiryDate)} <Badge code={record.istimara.status.code} label={record.istimara.status.label} /></p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span>{record.istimara.number} · {formatDate(record.istimara.expiryDate)}</span>
+            <Badge code={record.istimara.status.code} label={record.istimara.status.label} />
+            {record.istimara.fileIds?.[0] ? <DocumentLink id={record.istimara.fileIds[0]} /> : null}
+          </div>
         ) : <p className="mt-2 text-muted">No istimara recorded.</p>}
       </Panel>
       <Panel className="p-4 text-sm">
         <h2 className="font-semibold">Insurance</h2>
         {record.insurance ? (
-          <p className="mt-2 flex flex-wrap items-center gap-2">
-            {record.insurance.insurer} {record.insurance.policyNumber} · Start {formatDate(record.insurance.startDate)} · Expiry {formatDate(record.insurance.endDate)}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span>{record.insurance.insurer} {record.insurance.policyNumber} · Start {formatDate(record.insurance.startDate)} · Expiry {formatDate(record.insurance.endDate)}</span>
             <Badge code={record.insurance.status.code} label={record.insurance.status.label} />
-          </p>
+            {record.insurance.fileIds?.[0] ? <DocumentLink id={record.insurance.fileIds[0]} /> : null}
+          </div>
         ) : <p className="mt-2 text-muted">No policy recorded.</p>}
+      </Panel>
+      <Panel className="p-4 text-sm">
+        <h2 className="font-semibold">Stored OCR Documents</h2>
+        {storedDocs.length === 0 ? (
+          <p className="mt-2 text-muted">No OCR documents uploaded for this vehicle yet.</p>
+        ) : (
+          <ul className="mt-2 space-y-1.5">
+            {storedDocs.map((doc) => (
+              <li key={doc.fileId} className="flex items-center justify-between gap-2">
+                <span className="capitalize text-ink">
+                  {doc.kind.replace("_", " ")} {doc.uploadedAt ? `(${formatDate(doc.uploadedAt)})` : ""}
+                </span>
+                <DocumentLink id={doc.fileId} />
+              </li>
+            ))}
+          </ul>
+        )}
       </Panel>
       <Panel className="p-4 text-sm">
         <h2 className="font-semibold">Vehicle photo</h2>
@@ -197,40 +240,83 @@ function MaintenanceTab({ vehicleId }: { vehicleId: string }) {
 
 function IstimaraTab({ vehicleId }: { vehicleId: string }) {
   const client = useQueryClient();
-  const rows = useList<{ id: string; number: string; issueDate: string; expiryDate: string; status: Status }>("ist-" + vehicleId, `/istimara?vehicleId=${vehicleId}`);
+  const rows = useList<{ id: string; number: string; issueDate: string; expiryDate: string; status: Status; fileIds?: string[] }>("ist-" + vehicleId, `/istimara?vehicleId=${vehicleId}`);
   const [form, setForm] = useState({ number: "", issueDate: "", expiryDate: "" });
+  const [fileId, setFileId] = useState("");
   const [error, setError] = useState<unknown>(null);
   const save = useMutation({
-    mutationFn: () => api("/istimara", { method: "POST", body: { vehicleId, ...form } }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["ist-" + vehicleId] }),
+    mutationFn: () => api("/istimara", { method: "POST", body: { vehicleId, ...form, fileIds: fileId ? [fileId] : undefined } }),
+    onSuccess: () => {
+      setForm({ number: "", issueDate: "", expiryDate: "" });
+      setFileId("");
+      setError(null);
+      void client.invalidateQueries({ queryKey: ["ist-" + vehicleId] });
+      void client.invalidateQueries({ queryKey: ["vehicle", vehicleId] });
+    },
     onError: setError,
   });
   return (
     <div className="space-y-4">
+      <DocumentCapture
+        kind="istimara"
+        vehicleId={vehicleId}
+        onRead={(id, fields) => {
+          setFileId(id);
+          setError(null);
+          setForm((current) => ({
+            number: fields.number || current.number,
+            issueDate: fields.issueDate || current.issueDate,
+            expiryDate: fields.expiryDate || current.expiryDate,
+          }));
+        }}
+      />
       <form className="grid gap-3 rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)] md:grid-cols-4" onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
         <Field label="Number"><TextInput value={form.number} onChange={(event) => setForm({ ...form, number: event.target.value })} required /></Field>
         <Field label="Issue date"><TextInput type="date" value={form.issueDate} onChange={(event) => setForm({ ...form, issueDate: event.target.value })} required /></Field>
         <Field label="Expiry date"><TextInput type="date" value={form.expiryDate} onChange={(event) => setForm({ ...form, expiryDate: event.target.value })} required /></Field>
-        <div className="flex items-end"><Button>Add renewal</Button></div>
+        <div className="flex items-end"><Button disabled={save.isPending}>{save.isPending ? "Saving..." : "Add renewal"}</Button></div>
       </form>
       <ErrorText error={error} />
-      {rows.data ? <DataTable columns={["Number", "Issued", "Expires", "Status"]} rows={rows.data.data.map((row) => [row.number, formatDate(row.issueDate), formatDate(row.expiryDate), <Badge key={row.id} code={row.status.code} label={row.status.label} />])} /> : <StateMessage>Loading istimara history...</StateMessage>}
+      {rows.data ? <DataTable columns={["Number", "Issued", "Expires", "Status", "Document"]} rows={rows.data.data.map((row) => [row.number, formatDate(row.issueDate), formatDate(row.expiryDate), <Badge key={row.id} code={row.status.code} label={row.status.label} />, row.fileIds?.[0] ? <DocumentLink key={`${row.id}-file`} id={row.fileIds[0]} /> : ""])} /> : <StateMessage>Loading istimara history...</StateMessage>}
     </div>
   );
 }
 
 function InsuranceTab({ vehicleId }: { vehicleId: string }) {
   const client = useQueryClient();
-  const rows = useList<{ id: string; policyNumber: string; insurer: string; type: Status; endDate: string; premium: Money; status: Status }>("pol-" + vehicleId, `/insurance/policies?vehicleId=${vehicleId}`);
+  const rows = useList<{ id: string; policyNumber: string; insurer: string; type: Status; endDate: string; premium: Money; status: Status; fileIds?: string[] }>("pol-" + vehicleId, `/insurance/policies?vehicleId=${vehicleId}`);
   const [form, setForm] = useState({ policyNumber: "", insurer: "", type: "comprehensive", startDate: "", endDate: "", premium: "" });
+  const [fileId, setFileId] = useState("");
   const [error, setError] = useState<unknown>(null);
   const save = useMutation({
-    mutationFn: () => api("/insurance/policies", { method: "POST", body: { vehicleId, ...form, premium: Number(form.premium) } }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["pol-" + vehicleId] }),
+    mutationFn: () => api("/insurance/policies", { method: "POST", body: { vehicleId, ...form, premium: Number(form.premium), fileIds: fileId ? [fileId] : undefined } }),
+    onSuccess: () => {
+      setForm({ policyNumber: "", insurer: "", type: "comprehensive", startDate: "", endDate: "", premium: "" });
+      setFileId("");
+      setError(null);
+      void client.invalidateQueries({ queryKey: ["pol-" + vehicleId] });
+      void client.invalidateQueries({ queryKey: ["vehicle", vehicleId] });
+    },
     onError: setError,
   });
   return (
     <div className="space-y-4">
+      <DocumentCapture
+        kind="insurance"
+        vehicleId={vehicleId}
+        onRead={(id, fields) => {
+          setFileId(id);
+          setError(null);
+          setForm((current) => ({
+            policyNumber: fields.policyNumber || current.policyNumber,
+            insurer: fields.insurer || current.insurer,
+            type: fields.type === "comprehensive" || fields.type === "third_party" ? fields.type : current.type,
+            startDate: fields.startDate || current.startDate,
+            endDate: fields.endDate || current.endDate,
+            premium: fields.premium || current.premium,
+          }));
+        }}
+      />
       <form className="grid gap-3 rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)] md:grid-cols-3" onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
         <Field label="Policy number"><TextInput value={form.policyNumber} onChange={(event) => setForm({ ...form, policyNumber: event.target.value })} required /></Field>
         <Field label="Insurer"><TextInput value={form.insurer} onChange={(event) => setForm({ ...form, insurer: event.target.value })} required /></Field>
@@ -243,25 +329,27 @@ function InsuranceTab({ vehicleId }: { vehicleId: string }) {
         <Field label="Start"><TextInput type="date" value={form.startDate} onChange={(event) => setForm({ ...form, startDate: event.target.value })} required /></Field>
         <Field label="End"><TextInput type="date" value={form.endDate} onChange={(event) => setForm({ ...form, endDate: event.target.value })} required /></Field>
         <Field label="Premium (SAR)"><TextInput value={form.premium} onChange={(event) => setForm({ ...form, premium: event.target.value })} required /></Field>
-        <div><Button>Add policy</Button></div>
+        <div><Button disabled={save.isPending}>{save.isPending ? "Saving..." : "Add policy"}</Button></div>
       </form>
       <ErrorText error={error} />
-      {rows.data ? <DataTable columns={["Policy", "Insurer", "Type", "End", "Premium", "Status"]} rows={rows.data.data.map((row) => [row.policyNumber, row.insurer, row.type.label, formatDate(row.endDate), formatSar(row.premium), <Badge key={row.id} code={row.status.code} label={row.status.label} />])} /> : <StateMessage>Loading policies...</StateMessage>}
+      {rows.data ? <DataTable columns={["Policy", "Insurer", "Type", "End", "Premium", "Status", "Document"]} rows={rows.data.data.map((row) => [row.policyNumber, row.insurer, row.type.label, formatDate(row.endDate), formatSar(row.premium), <Badge key={row.id} code={row.status.code} label={row.status.label} />, row.fileIds?.[0] ? <DocumentLink key={`${row.id}-file`} id={row.fileIds[0]} /> : ""])} /> : <StateMessage>Loading policies...</StateMessage>}
     </div>
   );
 }
 
 function EmiTab({ vehicleId }: { vehicleId: string }) {
   const client = useQueryClient();
-  const plans = useList<{ id: string; bank: string; loanAmount: Money; downPayment: Money; interestRate: number; monthlyAmount: Money; totalPaid: Money; remaining: Money; nextDue: string | null; tenureMonths: number; installmentsLeft: number; status: Status; vehicleId: string }>("emi-" + vehicleId, `/emi/plans?vehicleId=${vehicleId}`);
-  const [form, setForm] = useState({ bank: "", loanAmount: "", downPayment: "0", interestRate: "0", tenureMonths: "36", startDate: "", dueDay: "1" });
+  const plans = useList<{ id: string; bank: string; interestRate: number; monthlyAmount: Money; balloonAmount: Money; totalPaid: Money; remaining: Money; nextDue: string | null; startDate: string | null; tenureMonths: number; installmentCount: number; installmentsLeft: number; status: Status; vehicleId: string }>("emi-" + vehicleId, `/emi/plans?vehicleId=${vehicleId}`);
+  const [form, setForm] = useState({ bank: "", emiAmount: "", balloonAmount: "0", interestRate: "0", tenureMonths: "36", startDate: "", dueDay: "1" });
   const [error, setError] = useState<unknown>(null);
-  const locked = plans.data?.data.some((plan) => plan.installmentsLeft < plan.tenureMonths) ?? false;
-  const preview = emiPreview(Number(form.loanAmount), Number(form.downPayment || 0), Number(form.interestRate || 0), Number(form.tenureMonths));
+  const locked = plans.data?.data.some((plan) => plan.installmentsLeft < plan.installmentCount) ?? false;
+  const tenure = Number(form.tenureMonths);
+  const preview = emiSchedule(Number(form.emiAmount), Number(form.balloonAmount || 0), tenure);
+  const remaining = monthsRemaining(form.startDate, tenure);
   const save = useMutation({
-    mutationFn: () => api("/emi/plans", { method: "POST", body: { vehicleId, bank: form.bank, loanAmount: Number(form.loanAmount), downPayment: Number(form.downPayment || 0), interestRate: Number(form.interestRate || 0), tenureMonths: Number(form.tenureMonths), startDate: form.startDate, dueDay: Number(form.dueDay) } }),
+    mutationFn: () => api("/emi/plans", { method: "POST", body: { vehicleId, bank: form.bank, emiAmount: Number(form.emiAmount), balloonAmount: Number(form.balloonAmount || 0), interestRate: Number(form.interestRate || 0), tenureMonths: Number(form.tenureMonths), startDate: form.startDate, dueDay: Number(form.dueDay) } }),
     onSuccess: async () => {
-      setForm({ bank: "", loanAmount: "", downPayment: "0", interestRate: "0", tenureMonths: "36", startDate: "", dueDay: "1" });
+      setForm({ bank: "", emiAmount: "", balloonAmount: "0", interestRate: "0", tenureMonths: "36", startDate: "", dueDay: "1" });
       setError(null);
       await client.invalidateQueries({ queryKey: ["emi-" + vehicleId] });
       await client.invalidateQueries({ queryKey: ["emi-list"] });
@@ -273,14 +361,15 @@ function EmiTab({ vehicleId }: { vehicleId: string }) {
       {locked ? <StateMessage>Payments are already recorded, so this schedule stays as it is.</StateMessage> : (
         <form className="grid gap-3 rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)] md:grid-cols-3" onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
           <Field label="Bank"><TextInput value={form.bank} onChange={(event) => setForm({ ...form, bank: event.target.value })} required /></Field>
-          <Field label="Loan amount (SAR)"><TextInput value={form.loanAmount} onChange={(event) => setForm({ ...form, loanAmount: event.target.value })} required /></Field>
-          <Field label="Down payment (SAR)"><TextInput value={form.downPayment} onChange={(event) => setForm({ ...form, downPayment: event.target.value })} required /></Field>
+          <Field label="EMI amount (SAR)"><TextInput value={form.emiAmount} onChange={(event) => setForm({ ...form, emiAmount: event.target.value })} required /></Field>
+          <Field label="Balloon amount (SAR)"><TextInput value={form.balloonAmount} onChange={(event) => setForm({ ...form, balloonAmount: event.target.value })} /></Field>
           <Field label="Interest % per year"><TextInput value={form.interestRate} onChange={(event) => setForm({ ...form, interestRate: event.target.value })} required /></Field>
           <Field label="Tenure (months)"><TextInput value={form.tenureMonths} onChange={(event) => setForm({ ...form, tenureMonths: event.target.value })} required /></Field>
           <Field label="Start date"><DateField value={form.startDate} onChange={(startDate) => setForm({ ...form, startDate })} /></Field>
+          <Field label="Months remaining"><TextInput value={remaining == null ? "" : String(remaining)} disabled readOnly /></Field>
           <Field label="Due day (1 to 28)"><TextInput value={form.dueDay} onChange={(event) => setForm({ ...form, dueDay: event.target.value })} required /></Field>
           <div className="flex items-end"><Button disabled={!preview || !form.startDate || !form.bank.trim() || save.isPending}>{plans.data?.data.length ? "Replace schedule" : "Create schedule"}</Button></div>
-          {preview ? <p className="text-sm text-muted md:col-span-3">Financed {formatSar({ halalas: preview.financedHalalas })}. Monthly {formatSar({ halalas: preview.monthlyHalalas })}.{preview.lastHalalas === preview.monthlyHalalas ? "" : ` Last installment ${formatSar({ halalas: preview.lastHalalas })}.`}</p> : null}
+          {preview ? <p className="text-sm text-muted md:col-span-3">EMI {formatSar({ halalas: preview.monthlyHalalas })} for {tenure} months.{preview.balloonHalalas > 0 ? ` Balloon ${formatSar({ halalas: preview.balloonHalalas })} after the monthly payments.` : ""}{remaining == null ? "" : ` ${remaining} months remaining.`} <span className="font-semibold text-ink">Total {formatSar({ halalas: preview.totalHalalas })}.</span></p> : null}
         </form>
       )}
       <ErrorText error={error} />
@@ -290,11 +379,11 @@ function EmiTab({ vehicleId }: { vehicleId: string }) {
   );
 }
 
-function Installments({ plan, vehicleId }: { plan: { id: string; bank: string; loanAmount: Money; monthlyAmount: Money; totalPaid: Money; remaining: Money; nextDue: string | null; installmentsLeft: number; status: Status }; vehicleId: string }) {
+function Installments({ plan, vehicleId }: { plan: { id: string; bank: string; monthlyAmount: Money; balloonAmount: Money; totalPaid: Money; remaining: Money; nextDue: string | null; startDate: string | null; tenureMonths: number; installmentsLeft: number; status: Status }; vehicleId: string }) {
   const client = useQueryClient();
   const rows = useQuery({ queryKey: ["inst", plan.id], queryFn: () => api<{ data: Array<{ id: string; seq: number; dueDate: string; amount: Money; status: Status }> }>(`/emi/plans/${plan.id}/installments`) });
   const mark = useMutation({
-    mutationFn: (id: string) => api(`/emi/installments/${id}`, { method: "PATCH", body: { status: "paid" } }),
+    mutationFn: (input: { id: string; status: "paid" | "unpaid" }) => api(`/emi/installments/${input.id}`, { method: "PATCH", body: { status: input.status } }),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ["inst", plan.id] });
       await client.invalidateQueries({ queryKey: ["emi-" + vehicleId] });
@@ -307,7 +396,8 @@ function Installments({ plan, vehicleId }: { plan: { id: string; bank: string; l
         <p className="text-sm font-semibold">{plan.bank}</p>
         <Badge code={plan.status.code} label={plan.status.label} />
       </div>
-      <p className="mt-1 text-sm text-muted">Loan {formatSar(plan.loanAmount)}. Monthly {formatSar(plan.monthlyAmount)}. Paid {formatSar(plan.totalPaid)}. Remaining {formatSar(plan.remaining)}. Next due {formatDate(plan.nextDue) || "None"}. {plan.installmentsLeft} left.</p>
+      <p className="mt-1 text-sm text-muted">EMI {formatSar(plan.monthlyAmount)}. Balloon {formatSar(plan.balloonAmount)}. {monthsRemaining(plan.startDate ?? "", plan.tenureMonths) ?? 0} months remaining. Paid {formatSar(plan.totalPaid)}. Remaining {formatSar(plan.remaining)}. Next due {formatDate(plan.nextDue) || "None"}. {plan.installmentsLeft} left.</p>
+      {mark.isError ? <p className="mt-2 text-sm text-status-danger">Could not update this installment.</p> : null}
       {rows.data ? (
         <div className="mt-3">
           <DataTable
@@ -317,7 +407,15 @@ function Installments({ plan, vehicleId }: { plan: { id: string; bank: string; l
               formatDate(row.dueDate),
               formatSar(row.amount),
               <Badge key={row.id} code={row.status.code} label={row.status.label} />,
-              row.status.code === "unpaid" ? <Button key={`${row.id}-pay`} variant="secondary" onClick={() => mark.mutate(row.id)}>Mark paid</Button> : "",
+              row.status.code === "unpaid" ? (
+                <Button key={`${row.id}-pay`} variant="secondary" disabled={mark.isPending} onClick={() => mark.mutate({ id: row.id, status: "paid" })}>
+                  {mark.isPending && mark.variables?.id === row.id ? "Saving..." : "Mark paid"}
+                </Button>
+              ) : (
+                <Button key={`${row.id}-unpay`} variant="secondary" disabled={mark.isPending} onClick={() => mark.mutate({ id: row.id, status: "unpaid" })}>
+                  {mark.isPending && mark.variables?.id === row.id ? "Saving..." : "Mark unpaid"}
+                </Button>
+              ),
             ])}
           />
         </div>

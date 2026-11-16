@@ -2,14 +2,27 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useState } from "react";
 import { Badge, Button, EmptyState, ErrorState, Field, PageHeader, Panel, Skeleton, TextInput } from "../components/ui";
 import { ApiError, api } from "../lib/api";
+import type { CompanyLimits, Module, Subscription } from "../types";
 
 type GmailAccess = { id: string; name: string; email: string; status: string; primary: boolean };
+
+type CompanySettings = {
+  id: string;
+  name: string;
+  status: string;
+  modules: Module[];
+  limits: CompanyLimits;
+  subscription: Subscription;
+  smsCredits: number;
+};
 
 const blank = { id: "", name: "", email: "", primary: false };
 
 export function SettingsPage() {
   const client = useQueryClient();
+  const company = useQuery({ queryKey: ["settings-company"], queryFn: () => api<{ data: CompanySettings }>("/settings/company") });
   const access = useQuery({ queryKey: ["gmail-access"], queryFn: () => api<{ data: GmailAccess[] }>("/settings/gmail-access") });
+
   const [form, setForm] = useState(blank);
   const [confirmId, setConfirmId] = useState("");
   const [message, setMessage] = useState("");
@@ -68,10 +81,52 @@ export function SettingsPage() {
     save.mutate();
   }
 
-  return (
-    <div className="space-y-5">
-      <PageHeader title="Settings" description="Allow a Gmail address to sign in, then edit, activate, or remove it." />
+  const companyData = company.data?.data;
 
+  return (
+    <div className="space-y-6">
+      <PageHeader title="Settings" description="Company subscription profile, plan limits, and authentication access." />
+
+      {/* Company Plan and Entitlements (Read-Only) */}
+      {companyData ? (
+        <Panel className="p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
+            <div>
+              <h2 className="text-base font-semibold text-ink">{companyData.name}</h2>
+              <p className="text-sm text-muted">Subscription Plan: <span className="font-medium text-ink capitalize">{companyData.subscription?.plan ?? "Starter"}</span></p>
+            </div>
+            <Badge code={companyData.subscription?.status ?? "active"} label={(companyData.subscription?.status ?? "Active").toUpperCase()} />
+          </div>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted">Active Modules</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {(companyData.modules || ["fleet"]).map((mod) => (
+                  <span key={mod} className="rounded-md border border-brand bg-brand-soft px-2.5 py-1 text-xs font-medium text-brand-deep capitalize">
+                    {mod}
+                  </span>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-muted">Modules can only be modified by your system administrator.</p>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted">Plan Limits & Usage</p>
+              <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-ink">
+                <div>Vehicles Limit: <span className="font-semibold">{companyData.limits?.vehicles ?? 0}</span></div>
+                <div>Equipment Limit: <span className="font-semibold">{companyData.limits?.equipment ?? 0}</span></div>
+                <div>Employees Limit: <span className="font-semibold">{companyData.limits?.employees ?? 0}</span></div>
+                <div>Admin Seats: <span className="font-semibold">{companyData.limits?.adminSeats ?? 5}</span></div>
+                <div>SMS Credits: <span className="font-semibold">{companyData.limits?.smsCredits ?? 0}</span></div>
+                <div>Storage: <span className="font-semibold">{companyData.limits?.storageMb ?? 5120} MB</span></div>
+              </div>
+            </div>
+          </div>
+        </Panel>
+      ) : null}
+
+      {/* Gmail Access Panel */}
       <Panel className="p-4 sm:p-5">
         <h2 className="text-base font-semibold text-ink">{editing ? "Edit Gmail access" : "Allow Gmail access"}</h2>
         <p className="mt-1 text-sm text-muted">Sign-in codes are sent from the configured Gmail account to an allowed address.</p>

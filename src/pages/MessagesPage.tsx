@@ -20,6 +20,7 @@ type Message = {
   body: string;
   fileIds: string[];
   broadcastId?: string | null;
+  unread?: boolean;
   delivered?: boolean | number;
   sent?: number;
   createdAt: string | null;
@@ -165,6 +166,7 @@ export function MessagesPage() {
       .map((driver) => ({
         driver,
         latest: rows.find((message) => message.driverId === driver.id),
+        unread: rows.filter((message) => message.driverId === driver.id && message.senderRole === "driver" && message.unread).length,
       }))
       .sort((a, b) => {
         const left = a.latest?.createdAt ? new Date(a.latest.createdAt).getTime() : 0;
@@ -257,6 +259,24 @@ export function MessagesPage() {
     };
   }, []);
 
+  const viewingUnread = selected !== "" && selected !== ALL && rows.some((message) => message.driverId === selected && message.senderRole === "driver" && message.unread);
+
+  useEffect(() => {
+    if (!viewingUnread || selected === ALL) return;
+    const driverId = selected;
+    void api("/messages/read", { method: "POST", body: { driverId } }).then(() => {
+      client.setQueryData<{ data: Message[] }>(["messages"], (current) => {
+        if (!current) return current;
+        return {
+          data: current.data.map((message) => (
+            message.driverId === driverId && message.senderRole === "driver" ? { ...message, unread: false } : message
+          )),
+        };
+      });
+      void client.invalidateQueries({ queryKey: ["message-unread"] });
+    });
+  }, [client, selected, viewingUnread]);
+
   function openChat(id: string) {
     setSelected(id);
     setFolder("chats");
@@ -267,6 +287,20 @@ export function MessagesPage() {
     setMenu(null);
     setError("");
     setNote("");
+    if (id === ALL) return;
+    client.setQueryData<{ data: Message[] }>(["messages"], (current) => {
+      if (!current) return current;
+      return {
+        data: current.data.map((message) => (
+          message.driverId === id && message.senderRole === "driver" ? { ...message, unread: false } : message
+        )),
+      };
+    });
+    void api("/messages/read", { method: "POST", body: { driverId: id } })
+      .then(() => client.invalidateQueries({ queryKey: ["message-unread"] }))
+      .catch(() => {
+        void client.invalidateQueries({ queryKey: ["messages"] });
+      });
   }
 
   function cancelHold() {
@@ -445,15 +479,25 @@ export function MessagesPage() {
           ) : null}
           {drivers.isLoading || messages.isLoading ? <p className="px-4 py-6 text-sm text-muted">Loading chats...</p> : null}
           {drivers.isError || messages.isError ? <p className="px-4 py-6 text-sm text-status-danger">Could not load chats.</p> : null}
-          {chats.map(({ driver, latest }) => (
+          {chats.map(({ driver, latest, unread }) => (
             <button key={driver.id} type="button" className={cn("flex w-full items-center gap-3 px-4 py-3 text-left", selected === driver.id && folder === "chats" ? "bg-brand-soft" : "hover:bg-canvas")} onClick={() => openChat(driver.id)}>
-              <Avatar name={driver.name} photoUrl={driver.photoUrl} />
+              <span className="relative shrink-0">
+                <Avatar name={driver.name} photoUrl={driver.photoUrl} />
+                {unread > 0 ? <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-highlight ring-2 ring-card" aria-hidden="true" /> : null}
+              </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-baseline justify-between gap-2">
                   <span className="truncate text-sm font-semibold text-ink">{driver.name}</span>
                   <span className="shrink-0 text-xs text-muted">{formatWhen(latest?.createdAt ?? null)}</span>
                 </span>
-                <span className="mt-0.5 block truncate text-xs text-muted">{preview(latest)}</span>
+                <span className="mt-0.5 flex items-center justify-between gap-2">
+                  <span className={cn("min-w-0 truncate text-xs", unread > 0 ? "font-semibold text-ink" : "text-muted")}>{preview(latest)}</span>
+                  {unread > 0 ? (
+                    <span className="shrink-0 rounded-md bg-highlight px-1.5 py-0.5 text-[11px] font-semibold text-ink">
+                      {unread === 1 ? "New" : `${unread} new`}
+                    </span>
+                  ) : null}
+                </span>
               </span>
             </button>
           ))}
