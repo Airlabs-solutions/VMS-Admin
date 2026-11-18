@@ -58,7 +58,7 @@ const costNames: Record<string, string> = {
   other: "Other",
 };
 
-const costPalette = ["#f9be78", "#e8cd7c", "#d9e486", "#b8d77a", "#86b356", "#79a857"];
+const costPalette = ["#202B3A", "#B66E52", "#475970", "#D19780", "#6B7C8E", "#E9E2D6"];
 
 const recordLabels: Record<string, string> = {
   vehicles: "Vehicle",
@@ -365,20 +365,20 @@ export function DashboardPage() {
             </section>
 
             <section className={cn(cardClass, "flex h-full flex-col 2xl:col-span-4 2xl:row-span-2")}>
-              <div className="rounded-lg bg-brand p-4 text-ink sm:p-5">
+              <div className="rounded-lg bg-[#202B3A] p-4 text-white sm:p-5">
                 <div className="flex items-center justify-between gap-3 text-xs">
-                  <span className="font-medium">Fleet card</span>
-                  <span className="truncate">{companyName}</span>
+                  <span className="font-medium text-[#E9E2D6]">Fleet card</span>
+                  <span className="truncate text-white/90">{companyName}</span>
                 </div>
-                <p className="mt-8 text-xs text-[#3f5a1c]">Registered vehicles</p>
+                <p className="mt-8 text-xs text-[#E9E2D6]">Registered vehicles</p>
                 <p className="mt-1 text-4xl font-semibold tracking-tight tabular-nums">{cards.totalVehicles.toLocaleString("en-US")}</p>
                 <div className="mt-8 flex items-end justify-between gap-4">
                   <div>
-                    <p className="text-[11px] text-[#3f5a1c]">Active</p>
+                    <p className="text-[11px] text-[#E9E2D6]">Active</p>
                     <p className="mt-0.5 text-sm font-medium tabular-nums">{cards.active.toLocaleString("en-US")}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-[11px] text-[#3f5a1c]">Drivers</p>
+                    <p className="text-[11px] text-[#E9E2D6]">Drivers</p>
                     <p className="mt-0.5 text-sm font-medium tabular-nums">{(cards.drivers ?? 0).toLocaleString("en-US")}</p>
                   </div>
                 </div>
@@ -388,7 +388,7 @@ export function DashboardPage() {
                   <Link
                     key={action.to}
                     to={action.to}
-                    className="flex flex-col items-center gap-1.5 rounded-md px-1 py-2 text-[11px] font-medium text-muted transition-colors duration-150 hover:bg-[#f4f8e8] hover:text-ink"
+                    className="flex flex-col items-center gap-1.5 rounded-md px-1 py-2 text-[11px] font-medium text-muted transition-colors duration-150 hover:bg-brand-soft hover:text-ink"
                   >
                     <span className="grid h-9 w-9 place-items-center rounded-md border border-line text-ink">
                       <action.icon className="h-4 w-4" aria-hidden="true" />
@@ -404,13 +404,13 @@ export function DashboardPage() {
                 title="Fleet capacity"
                 detail="Registered vehicles"
                 action={
-                  <Link to="/vehicles" aria-label="Open vehicles" className="grid h-8 w-8 place-items-center rounded-md text-muted hover:bg-[#f4f8e8] hover:text-ink">
+                  <Link to="/vehicles" aria-label="Open vehicles" className="grid h-8 w-8 place-items-center rounded-md text-muted hover:bg-brand-soft hover:text-ink">
                     <Pencil className="h-4 w-4" />
                   </Link>
                 }
               />
-              <div className="h-3 overflow-hidden rounded-md bg-[#eeeeee]" role="meter" aria-valuenow={cards.totalVehicles} aria-valuemin={0} aria-valuemax={FLEET_LIMIT} aria-label="Fleet capacity">
-                <div className="h-3 rounded-md" style={{ width: `${capacity}%`, background: "linear-gradient(90deg, #d9e486 0%, #a8d95b 58%, #86b356 100%)" }} />
+              <div className="h-3 overflow-hidden rounded-md bg-line" role="meter" aria-valuenow={cards.totalVehicles} aria-valuemin={0} aria-valuemax={FLEET_LIMIT} aria-label="Fleet capacity">
+                <div className="h-3 rounded-md bg-[#202B3A]" style={{ width: `${capacity}%` }} />
               </div>
               <div className="mt-2 flex items-center justify-between text-sm tabular-nums">
                 <span className="font-semibold text-ink">{cards.totalVehicles.toLocaleString("en-US")}</span>
@@ -425,10 +425,10 @@ export function DashboardPage() {
                 Read more
               </Link>
               <div className="pointer-events-none absolute right-4 bottom-4 grid grid-cols-2 gap-1" aria-hidden="true">
-                <span className="h-3.5 w-3.5 rounded-sm bg-[#d9e486]" />
-                <span className="h-3.5 w-3.5 rounded-sm bg-[#a8d95b]" />
-                <span className="h-3.5 w-3.5 rounded-sm bg-[#94c34f]" />
-                <span className="h-3.5 w-3.5 rounded-sm bg-[#ffb765]" />
+                <span className="h-3.5 w-3.5 rounded-sm bg-[#202B3A]" />
+                <span className="h-3.5 w-3.5 rounded-sm bg-[#B66E52]" />
+                <span className="h-3.5 w-3.5 rounded-sm bg-[#E9E2D6]" />
+                <span className="h-3.5 w-3.5 rounded-sm bg-[#34414F]" />
               </div>
             </section>
           </div>
@@ -522,7 +522,7 @@ export function DashboardPage() {
                           to={item.vehicleId ? `/vehicles/${item.vehicleId}` : "/drivers"}
                           className="flex items-center gap-3 py-3"
                         >
-                          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#f4f8e8] text-brand-deep">
+                          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-brand-soft text-brand-deep">
                             <Icon className="h-4 w-4" aria-hidden="true" />
                           </span>
                           <span className="min-w-0 flex-1">
@@ -544,7 +544,7 @@ export function DashboardPage() {
                 <ul className="divide-y divide-line">
                   {activity.data?.data.map((row) => (
                     <li key={row.id} className="flex items-center gap-3 py-3">
-                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#f4f8e8] text-brand-deep">
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-brand-soft text-brand-deep">
                         <ClipboardList className="h-4 w-4" aria-hidden="true" />
                       </span>
                       <span className="min-w-0 flex-1">

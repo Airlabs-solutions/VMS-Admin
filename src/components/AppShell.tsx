@@ -387,11 +387,11 @@ export function AppShell({ user }: { user: SessionUser }) {
     <div className="box-border flex h-screen flex-col overflow-hidden bg-canvas">
       {/* Top Tier 1: Brand + 3 Module Switcher Tabs + Global Search & User Bar */}
       <header className="relative z-40 shrink-0 border-b border-line bg-sidebar">
-        <div className="flex min-h-[54px] flex-wrap items-center justify-between gap-2 px-3 sm:px-5">
-          <div className="flex items-center gap-2 sm:gap-4">
+        <div className="flex min-h-[68px] flex-wrap items-center justify-between gap-2 px-3 sm:px-5">
+          <div className="flex min-h-[68px] items-center gap-2 sm:gap-4">
             <button
               type="button"
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-ink hover:bg-brand-soft lg:hidden"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-white hover:bg-[#34414F] lg:hidden"
               aria-label="Toggle module menu"
               onClick={() => setMobileOpen((v) => !v)}
             >
@@ -400,16 +400,14 @@ export function AppShell({ user }: { user: SessionUser }) {
 
             <Link
               to="/dashboard"
-              className="flex items-center gap-2 rounded-md px-2 py-1 text-base font-bold tracking-tight text-ink"
+              className="flex items-center rounded-md px-1 py-1.5"
+              aria-label="AxetPro Dashboard"
             >
-              <span className="grid h-7 w-7 place-items-center rounded-md bg-brand text-xs font-bold text-ink">
-                V
-              </span>
-              <span>VMS ERP</span>
+              <img src="/logos/logo-dark.svg" alt="AxetPro" className="h-10 w-auto" />
             </Link>
 
             {/* Top Module Switcher Tabs (Fleet | HR | Equipment) */}
-            <nav className="flex items-center gap-1 pt-1" aria-label="Platform Modules">
+            <nav className="flex items-end gap-1 self-end pt-2" aria-label="Platform Modules">
               {moduleTabs.map((tab) => {
                 const isSelected = currentTab?.key === tab.key;
                 const Icon = tab.icon;
@@ -419,10 +417,10 @@ export function AppShell({ user }: { user: SessionUser }) {
                     type="button"
                     onClick={() => handleSelectModule(tab)}
                     className={cn(
-                      "inline-flex items-center gap-2 rounded-t-md border-t border-x px-3.5 py-2 text-xs sm:text-sm font-semibold transition-colors duration-150",
+                      "inline-flex items-center gap-2 rounded-t-md border-t border-x px-4 py-2.5 text-xs sm:text-sm font-semibold transition-colors duration-150",
                       isSelected
-                        ? "border-line bg-card text-ink shadow-[inset_0_3px_0_0_#a8d95b]"
-                        : "border-transparent bg-transparent text-muted hover:bg-card/60 hover:text-ink",
+                        ? "border-line bg-card text-brand-deep shadow-[inset_0_3px_0_0_#B66E52]"
+                        : "border-transparent bg-transparent text-[#E9E2D6] hover:bg-[#34414F] hover:text-white",
                     )}
                   >
                     <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -493,7 +491,7 @@ export function AppShell({ user }: { user: SessionUser }) {
                 aria-expanded={panel === "account"}
                 onClick={() => setPanel((current) => (current === "account" ? null : "account"))}
               >
-                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-brand text-[11px] font-semibold text-ink">
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-brand-deep text-[11px] font-semibold text-white">
                   {initials(user.name)}
                 </span>
                 <span className="hidden text-start lg:block">
@@ -538,7 +536,7 @@ export function AppShell({ user }: { user: SessionUser }) {
             {currentTab ? (
               <Link
                 to={currentTab.ctaTo}
-                className="inline-flex h-8 items-center justify-center rounded-md bg-brand px-3 text-xs font-semibold text-ink transition-colors duration-150 hover:bg-brand-strong"
+                className="inline-flex h-8 items-center justify-center rounded-md bg-brand px-3 text-xs font-semibold text-white transition-colors duration-150 hover:bg-brand-strong"
               >
                 {currentTab.ctaLabel}
               </Link>
@@ -574,8 +572,8 @@ export function AppShell({ user }: { user: SessionUser }) {
                           className={cn(
                             "group relative flex min-w-[78px] flex-col items-center justify-center gap-1 rounded-md px-2.5 py-1.5 text-center transition-colors duration-150",
                             active
-                              ? "bg-brand-soft font-semibold text-ink shadow-[inset_0_-2px_0_0_#a8d95b]"
-                              : "text-muted hover:bg-canvas hover:text-ink",
+                              ? "bg-brand-soft font-semibold text-brand-deep shadow-[inset_0_-2px_0_0_#B66E52]"
+                              : "text-muted hover:bg-brand-soft/60 hover:text-ink",
                           )}
                         >
                           <span className="relative">
@@ -587,7 +585,7 @@ export function AppShell({ user }: { user: SessionUser }) {
                               aria-hidden="true"
                             />
                             {item.badgeCount && item.badgeCount > 0 ? (
-                              <span className="absolute -top-1.5 -right-2.5 grid h-4 min-w-4 place-items-center rounded-md bg-brand px-1 text-[10px] font-bold text-ink">
+                              <span className="absolute -top-1.5 -right-2.5 grid h-4 min-w-4 place-items-center rounded-md bg-brand px-1 text-[10px] font-bold text-white">
                                 {item.badgeCount > 9 ? "9+" : item.badgeCount}
                               </span>
                             ) : null}

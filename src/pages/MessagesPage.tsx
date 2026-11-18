@@ -83,7 +83,7 @@ function Avatar({ name, photoUrl, size = "md" }: { name: string; photoUrl?: stri
   if (photoUrl) {
     return <img src={photoUrl} alt="" className={cn(box, "rounded-md object-cover")} />;
   }
-  return <span className={cn(box, "grid place-items-center rounded-md bg-brand font-semibold text-ink")}>{initials(name)}</span>;
+  return <span className={cn(box, "grid place-items-center rounded-md bg-brand-deep font-semibold text-white")}>{initials(name)}</span>;
 }
 
 function ChatFile({ fileId, card = false }: { fileId: string; card?: boolean }) {
@@ -457,8 +457,8 @@ export function MessagesPage() {
             />
           </label>
           <div className="mt-3 grid grid-cols-2 gap-1 rounded-md bg-canvas p-1">
-            <button type="button" className={cn("h-9 rounded-md text-sm font-medium", folder === "chats" ? "bg-brand text-ink" : "text-muted hover:text-ink")} onClick={() => setFolder("chats")}>Chats</button>
-            <button type="button" className={cn("inline-flex h-9 items-center justify-center gap-1.5 rounded-md text-sm font-medium", folder === "files" ? "bg-brand text-ink" : "text-muted hover:text-ink")} onClick={() => setFolder("files")}>
+            <button type="button" className={cn("h-9 rounded-md text-sm font-medium", folder === "chats" ? "bg-brand text-white" : "text-muted hover:text-ink")} onClick={() => setFolder("chats")}>Chats</button>
+            <button type="button" className={cn("inline-flex h-9 items-center justify-center gap-1.5 rounded-md text-sm font-medium", folder === "files" ? "bg-brand text-white" : "text-muted hover:text-ink")} onClick={() => setFolder("files")}>
               <Folder className="h-4 w-4" aria-hidden="true" />
               Files
             </button>
@@ -562,7 +562,7 @@ export function MessagesPage() {
                 return (
                   <div key={message.broadcastId && selected === ALL ? message.broadcastId : message.id} className={cn("flex", mine ? "justify-end" : "justify-start")}>
                     <div
-                      className={cn("max-w-[min(100%,28rem)] rounded-lg px-3 py-2 shadow-[0_1px_2px_rgba(17,22,16,0.06)]", mine ? "rounded-br-sm bg-brand text-ink" : "rounded-bl-sm bg-card text-ink", holdable && "cursor-pointer")}
+                      className={cn("max-w-[min(100%,28rem)] rounded-lg px-3 py-2 shadow-[0_1px_2px_rgba(17,22,16,0.06)]", mine ? "rounded-br-sm bg-brand text-white" : "rounded-bl-sm bg-card text-ink", holdable && "cursor-pointer")}
                       style={holdable ? { WebkitTouchCallout: "none" } : undefined}
                       onPointerDown={holdable ? (event) => startHold(message, event) : undefined}
                       onPointerMove={holdable ? (event) => {
@@ -650,7 +650,7 @@ export function MessagesPage() {
                     }
                   }}
                 />
-                <button type="submit" className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-brand text-ink hover:bg-brand-strong disabled:opacity-50" aria-label="Send message" disabled={inactive || recording || save.isPending}>
+                <button type="submit" className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-brand text-white hover:bg-brand-strong disabled:opacity-50" aria-label="Send message" disabled={inactive || recording || save.isPending}>
                   <Send className="h-4 w-4" />
                 </button>
               </div>

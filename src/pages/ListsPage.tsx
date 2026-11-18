@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, CircleDollarSign, Fuel, MapPin, Receipt, Shield, Wrench } from "lucide-react";
 import { Link } from "react-router-dom";
-import { Badge, Button, DataTable, PageHeader, StateMessage, linkClass } from "../components/ui";
+import { Badge, Button, DataTable, EmptyState, PageHeader, StateMessage, linkClass } from "../components/ui";
 import { ApiError, api, download } from "../lib/api";
 import { formatDate, formatKm, formatSar } from "../lib/format";
 import type { ListResponse, Money, Status } from "../types";
@@ -25,7 +26,14 @@ export function MaintenanceListPage() {
   return (
     <Frame title="Maintenance" exportPath="/maintenance/export.xlsx">
       {rows.isLoading ? <StateMessage>Loading maintenance...</StateMessage> : null}
-      {rows.data?.data.length === 0 ? <StateMessage>No service schedules yet. Open a vehicle to add one.</StateMessage> : null}
+      {rows.data?.data.length === 0 ? (
+        <EmptyState
+          icon={<Wrench className="h-6 w-6" aria-hidden="true" />}
+          title="Schedule vehicle maintenance and track due dates"
+          detail="Open any vehicle to add service schedules by date or odometer distance."
+          action={<Link to="/vehicles"><Button>Open vehicles</Button></Link>}
+        />
+      ) : null}
       {rows.data && rows.data.data.length > 0 ? (
         <DataTable
           columns={["Plate", "Service", "Next date", "Next km", "Status"]}
@@ -49,7 +57,14 @@ export function InsuranceListPage() {
   });
   return (
     <Frame title="Insurance" exportPath="/insurance/export.xlsx">
-      {rows.data?.data.length === 0 ? <StateMessage>No policies yet.</StateMessage> : null}
+      {rows.data?.data.length === 0 ? (
+        <EmptyState
+          icon={<Shield className="h-6 w-6" aria-hidden="true" />}
+          title="Add insurance policies and monitor renewals"
+          detail="Open a vehicle to record its insurance policy and receive expiry alerts."
+          action={<Link to="/vehicles"><Button>Open vehicles</Button></Link>}
+        />
+      ) : null}
       {rows.data && rows.data.data.length > 0 ? (
         <DataTable
           columns={["Plate", "Insurer", "Policy", "Start", "Expiry", "Premium", "Status"]}
@@ -106,7 +121,14 @@ export function EmiListPage() {
       {rows.isLoading ? <StateMessage>Loading EMI plans...</StateMessage> : null}
       {rows.isError ? <StateMessage>Could not load EMI plans.</StateMessage> : null}
       {mark.isError ? <p className="mb-3 text-sm text-status-danger">{mark.error instanceof ApiError ? mark.error.message : "Could not update this EMI."}</p> : null}
-      {rows.data?.data.length === 0 ? <StateMessage>No EMI plans yet. Add one from a vehicle.</StateMessage> : null}
+      {rows.data?.data.length === 0 ? (
+        <EmptyState
+          icon={<CircleDollarSign className="h-6 w-6" aria-hidden="true" />}
+          title="Add EMI plans and track monthly installments"
+          detail="Open a vehicle to set up its financing schedule and payment status."
+          action={<Link to="/vehicles"><Button>Open vehicles</Button></Link>}
+        />
+      ) : null}
       {rows.data && rows.data.data.length > 0 ? (
         <DataTable
           columns={["Vehicle", "Bank", "EMI", "Balloon", "Next due", "Remaining", "Status", "Payment"]}
@@ -152,7 +174,14 @@ export function FuelListPage() {
   });
   return (
     <Frame title="Fuel" exportPath="/fuel/export.xlsx">
-      {rows.data?.data.length === 0 ? <StateMessage>No fuel logs yet.</StateMessage> : null}
+      {rows.data?.data.length === 0 ? (
+        <EmptyState
+          icon={<Fuel className="h-6 w-6" aria-hidden="true" />}
+          title="Log fuel fills and monitor consumption"
+          detail="Fuel entries logged by drivers or from vehicle pages will appear here."
+          action={<Link to="/vehicles"><Button>Open vehicles</Button></Link>}
+        />
+      ) : null}
       {rows.data && rows.data.data.length > 0 ? (
         <DataTable
           columns={["Plate", "Date", "Liters", "Cost", "Approval"]}
@@ -176,7 +205,14 @@ export function ViolationListPage() {
   });
   return (
     <Frame title="Violations" exportPath="/violations/export.xlsx">
-      {rows.data?.data.length === 0 ? <StateMessage>No violations yet.</StateMessage> : null}
+      {rows.data?.data.length === 0 ? (
+        <EmptyState
+          icon={<AlertTriangle className="h-6 w-6" aria-hidden="true" />}
+          title="Record traffic violations and track payments"
+          detail="Open a vehicle to log Saher or traffic violations and attach receipts."
+          action={<Link to="/vehicles"><Button>Open vehicles</Button></Link>}
+        />
+      ) : null}
       {rows.data && rows.data.data.length > 0 ? (
         <DataTable
           columns={["Plate", "Number", "Date", "Amount", "Status"]}
@@ -200,7 +236,14 @@ export function TripListPage() {
   });
   return (
     <Frame title="Trips" exportPath="/trips/export.xlsx">
-      {rows.data?.data.length === 0 ? <StateMessage>No trips yet.</StateMessage> : null}
+      {rows.data?.data.length === 0 ? (
+        <EmptyState
+          icon={<MapPin className="h-6 w-6" aria-hidden="true" />}
+          title="Log vehicle trips and track distances"
+          detail="Trips recorded by drivers or added on a vehicle will show up here."
+          action={<Link to="/vehicles"><Button>Open vehicles</Button></Link>}
+        />
+      ) : null}
       {rows.data && rows.data.data.length > 0 ? (
         <DataTable
           columns={["Plate", "Date", "From", "To", "Distance"]}
@@ -224,7 +267,14 @@ export function ExpenseListPage() {
   });
   return (
     <Frame title="Expenses" exportPath="/expenses/export.xlsx">
-      {rows.data?.data.length === 0 ? <StateMessage>No expenses yet.</StateMessage> : null}
+      {rows.data?.data.length === 0 ? (
+        <EmptyState
+          icon={<Receipt className="h-6 w-6" aria-hidden="true" />}
+          title="Track vehicle expenses in one place"
+          detail="Open a vehicle to record tolls, washes, repairs, and other operating costs."
+          action={<Link to="/vehicles"><Button>Open vehicles</Button></Link>}
+        />
+      ) : null}
       {rows.data && rows.data.data.length > 0 ? (
         <DataTable
           columns={["Plate", "Date", "Category", "Amount"]}

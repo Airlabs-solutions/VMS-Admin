@@ -143,19 +143,15 @@ export function ColumnChart({
                   aria-label={`${item.label}: ${formatValue(item.value)}`}
                 >
                   {hot ? (
-                    <>
-                      <span className="h-[10%] bg-[#f6f543]" />
-                      <span className="min-h-0 flex-1 bg-[#a8d95b]" />
-                      <span className="h-[26%] bg-[#ffb765]" />
-                    </>
+                    <span className="h-full w-full bg-[#B66E52] transition-colors group-hover:bg-[#9F5B43]" />
                   ) : (
-                    <span className="h-full w-full bg-[#e8e8e8] group-hover:bg-[#dedede]" />
+                    <span className="h-full w-full bg-[#E5E8E8] group-hover:bg-[#D5DADA]" />
                   )}
                 </button>
-                <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden w-max -translate-x-1/2 rounded-md border border-line bg-card px-2.5 py-2 text-left shadow-[0_8px_24px_rgba(17,22,16,0.08)] group-hover:block group-focus-within:block">
+                <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden w-max -translate-x-1/2 rounded-md border border-line bg-card px-2.5 py-2 text-left shadow-[0_8px_24px_rgba(32,43,58,0.10)] group-hover:block group-focus-within:block">
                   <span className="block text-[11px] text-muted">{item.label}</span>
                   <span className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-ink tabular-nums">
-                    <span className="h-2 w-2 rounded-sm bg-[#a8d95b]" />
+                    <span className="h-2 w-2 rounded-sm bg-[#B66E52]" />
                     {formatValue(item.value)}
                   </span>
                 </span>
@@ -188,22 +184,15 @@ export function Gauge({ value, caption }: { value: number; caption: string }) {
     <figure className="mx-auto w-full max-w-[220px]">
       <div className="relative">
         <svg viewBox="0 0 120 78" className="w-full" role="img" aria-label={`${clamped}% ${caption}`}>
-          <defs>
-            <linearGradient id="fleet-health-gauge" x1="0" y1="1" x2="1" y2="0">
-              <stop offset="0%" stopColor="#c8e86d" />
-              <stop offset="55%" stopColor="#a8d95b" />
-              <stop offset="100%" stopColor="#79a857" />
-            </linearGradient>
-          </defs>
           <path d={d} fill="none" stroke="var(--color-line)" strokeWidth="10" strokeLinecap="round" />
           <path
             d={d}
             fill="none"
-            stroke="url(#fleet-health-gauge)"
+            stroke="#202B3A"
             strokeWidth="10"
             strokeLinecap="round"
             strokeDasharray={`${shown} ${length}`}
-            className="transition-[stroke-dasharray] duration-300 ease-out"
+            className="transition-[stroke-dasharray] duration-300 ease-out dark:stroke-[#B66E52]"
           />
         </svg>
         <figcaption className="absolute inset-x-0 bottom-0 text-center">

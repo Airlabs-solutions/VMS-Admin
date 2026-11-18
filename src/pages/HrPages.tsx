@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Users } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -10,6 +11,7 @@ import {
   Field,
   PageHeader,
   Panel,
+  PhoneInput,
   SelectInput,
   StateMessage,
   Tabs,
@@ -178,7 +180,7 @@ export function HrDashboardPage() {
         </Button>
         <Link
           to="/hr/employees"
-          className="inline-flex h-10 items-center justify-center rounded-md bg-brand px-3.5 text-sm font-medium text-ink hover:bg-brand-strong"
+          className="inline-flex h-10 items-center justify-center rounded-md bg-brand px-3.5 text-sm font-medium text-white hover:bg-brand-strong"
         >
           View Employees
         </Link>
@@ -623,11 +625,10 @@ export function EmployeesPage() {
                 required
               />
             </Field>
-            <Field label="Saudi Mobile">
-              <TextInput
+            <Field label="Mobile">
+              <PhoneInput
                 value={form.mobile}
-                onChange={(e) => setForm({ ...form, mobile: e.target.value })}
-                placeholder="+966 5X XXX XXXX"
+                onChange={(mobile) => setForm({ ...form, mobile })}
                 required
               />
             </Field>
@@ -703,6 +704,7 @@ export function EmployeesPage() {
         </Panel>
       ) : null}
 
+      {employees.data && (rows.length > 0 || Boolean(q || status || department || nationality || expiringWithinDays)) ? (
       <Panel className="p-4">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <TextInput
@@ -738,6 +740,7 @@ export function EmployeesPage() {
           </SelectInput>
         </div>
       </Panel>
+      ) : null}
 
       {employees.isLoading ? (
         <StateMessage>Loading employees...</StateMessage>
@@ -747,6 +750,20 @@ export function EmployeesPage() {
           detail={employees.error instanceof ApiError ? employees.error.message : "Failed to fetch employee list."}
           onRetry={() => void employees.refetch()}
         />
+      ) : rows.length === 0 ? (
+        q || status || department || nationality || expiringWithinDays ? (
+          <EmptyState
+            title="No employees match these filters"
+            detail="Try clearing or adjusting your search filters."
+          />
+        ) : (
+          <EmptyState
+            icon={<Users className="h-6 w-6" aria-hidden="true" />}
+            title="Add employees and manage HR records"
+            detail="Register staff profiles to track iqamas, passports, contracts, attendance, and payroll."
+            action={<Button onClick={() => setShowCreate(true)}>Add Employee</Button>}
+          />
+        )
       ) : (
         <DataTable columns={tableColumns} rows={rows} />
       )}

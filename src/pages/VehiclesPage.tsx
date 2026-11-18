@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CarFront } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { DateField } from "../components/DateField";
 import { DocumentCapture } from "../components/DocumentCapture";
-import { Badge, Button, Field, PageHeader, SelectInput, StateMessage, TextArea, TextInput, linkClass } from "../components/ui";
+import { Badge, Button, EmptyState, Field, PageHeader, Panel, PhoneInput, SelectInput, StateMessage, TextArea, TextInput, linkClass } from "../components/ui";
 import { ApiError, api } from "../lib/api";
 import { emiSchedule, monthsRemaining } from "../lib/emi";
 import { formatDate, formatSar } from "../lib/format";
@@ -301,6 +302,7 @@ export function VehiclesPage() {
   const [emiLocked, setEmiLocked] = useState(false);
   const [plateFile, setPlateFile] = useState<File | null>(null);
   const [vehicleFile, setVehicleFile] = useState<File | null>(null);
+  const [istimaraFile, setIstimaraFile] = useState<File | null>(null);
   const [extraFiles, setExtraFiles] = useState<File[]>([]);
   const [newDriver, setNewDriver] = useState<NewDriver>(blankDriver());
   const [driverFiles, setDriverFiles] = useState<File[]>([]);
@@ -324,6 +326,7 @@ export function VehiclesPage() {
     setError("");
     setPlateFile(null);
     setVehicleFile(null);
+    setIstimaraFile(null);
     setExtraFiles([]);
     setNewDriver(blankDriver());
     setDriverFiles([]);
@@ -336,6 +339,7 @@ export function VehiclesPage() {
     setError("");
     setPlateFile(null);
     setVehicleFile(null);
+    setIstimaraFile(null);
     setExtraFiles([]);
     setNewDriver(blankDriver());
     setDriverFiles([]);
@@ -414,9 +418,12 @@ export function VehiclesPage() {
       if (wantsEmi && (!emiSchedule(emiAmount, balloonAmount, tenure) || interest < 0 || interest > 100 || dueDay < 1 || dueDay > 28)) {
         throw new ApiError("Check the EMI amount, balloon amount, interest, tenure, and due day", 400);
       }
-      const platePhotoId = plateFile ? await uploadPhoto(plateFile, "plates") : undefined;
-      const vehiclePhotoId = vehicleFile ? await uploadPhoto(vehicleFile, "vehicles") : undefined;
-      const uploadedExtras = await Promise.all(extraFiles.map((file) => uploadPhoto(file, "vehicles")));
+      const [platePhotoId, vehiclePhotoId, istimaraFileId, uploadedExtras] = await Promise.all([
+        plateFile ? uploadPhoto(plateFile, "plates") : Promise.resolve(undefined),
+        vehicleFile ? uploadPhoto(vehicleFile, "vehicles") : Promise.resolve(undefined),
+        istimaraFile ? uploadPhoto(istimaraFile, "istimara") : Promise.resolve(undefined),
+        Promise.all(extraFiles.map((file) => uploadPhoto(file, "vehicles"))),
+      ]);
       const body = {
         name: draft.name,
         plateNumber: draft.plateNumber,
@@ -436,6 +443,7 @@ export function VehiclesPage() {
         ...(draft.insurancePolicyNumber ? { insurancePolicyNumber: draft.insurancePolicyNumber } : {}),
         ...(draft.insuranceInsurer ? { insuranceInsurer: draft.insuranceInsurer } : {}),
         ...(draft.insuranceFileId ? { insuranceFileId: draft.insuranceFileId } : {}),
+        ...(istimaraFileId ? { istimaraFileIds: [istimaraFileId] } : {}),
         ...(driverId === draft.driverId && newDriver.ocrFileIds?.length ? { driverLicenseFileIds: newDriver.ocrFileIds } : {}),
         fahasExpiry: draft.fahasExpiry,
         ...(platePhotoId ? { platePhotoId } : {}),
@@ -486,6 +494,7 @@ export function VehiclesPage() {
       setEmiLocked(false);
       setPlateFile(null);
       setVehicleFile(null);
+      setIstimaraFile(null);
       setExtraFiles([]);
       setNewDriver(blankDriver());
       setDriverFiles([]);
@@ -541,58 +550,13 @@ export function VehiclesPage() {
 
   const monthsLeft = monthsRemaining(emi.startDate, Number(emi.tenureMonths));
 
-  return (
-    <div>
-      <PageHeader title="Vehicles">
-        <Button onClick={openAdd}>Add vehicle</Button>
-      </PageHeader>
-      <div className="mb-4 rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)]">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <Field label="Search">
-            <TextInput placeholder="Name, number, model, color, driver" value={search} onChange={(event) => setSearch(event.target.value)} />
-          </Field>
-          <Field label="Fuel">
-            <SelectInput value={fuel} onChange={(event) => setFuel(event.target.value)}>
-              <option value="">All fuels</option>
-              {fuels.map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </SelectInput>
-          </Field>
-          <Field label="Driver">
-            <SelectInput value={driverFilter} onChange={(event) => setDriverFilter(event.target.value)}>
-              <option value="">All drivers</option>
-              <option value="none">Unassigned</option>
-              {drivers.data?.data.map((driver) => (
-                <option key={driver.id} value={driver.id}>{driver.name}</option>
-              ))}
-            </SelectInput>
-          </Field>
-          <Field label="Insurance">
-            <SelectInput value={insuranceFilter} onChange={(event) => setInsuranceFilter(event.target.value)}>
-              <option value="">Any status</option>
-              <option value="valid">Valid</option>
-              <option value="expiring_soon">Expiring soon</option>
-              <option value="expired">Expired</option>
-              <option value="none">Not recorded</option>
-            </SelectInput>
-          </Field>
-        </div>
-        <div className="mt-3 flex items-center justify-between text-sm">
-          <p className="text-muted">{filtered.length} {filtered.length === 1 ? "vehicle" : "vehicles"}</p>
-          {filtersOn ? (
-            <button type="button" className="text-brand-deep hover:text-ink" onClick={clearFilters}>Clear filters</button>
-          ) : null}
-        </div>
-      </div>
-
-      {draft ? (
-        <Dialog title={draft.id ? "Edit vehicle" : "Add vehicle"} onClose={() => { if (!save.isPending) setDraft(null); }}>
-        <form onSubmit={onSubmit}>
-          <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-              <PhotoPicker label="Vehicle photo" file={vehicleFile} existingId={draft.vehiclePhotoId} onChange={setVehicleFile} />
-              <PhotoPicker label="Number plate photo" file={plateFile} existingId={draft.platePhotoId} onChange={setPlateFile} />
+  const vehicleForm = draft ? (
+    <form onSubmit={onSubmit}>
+      <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+          <PhotoPicker label="Vehicle photo" file={vehicleFile} existingId={draft.vehiclePhotoId} onChange={setVehicleFile} />
+          <PhotoPicker label="Number plate photo" file={plateFile} existingId={draft.platePhotoId} onChange={setPlateFile} />
+          <PhotoPicker label="Istimara picture" file={istimaraFile} existingId={null} onChange={setIstimaraFile} />
               {draft.photoIds.map((id) => (
                 <div key={id} className="space-y-1">
                   <PhotoThumb fileId={id} label="Extra photo" />
@@ -729,13 +693,88 @@ export function VehiclesPage() {
             </div>
           </div>
         </form>
+  ) : null;
+
+  return (
+    <div>
+      <PageHeader title="Vehicles">
+        <Button onClick={draft && !draft.id ? () => setDraft(null) : openAdd}>
+          {draft && !draft.id ? "Close Form" : "Add vehicle"}
+        </Button>
+      </PageHeader>
+
+      {draft && !draft.id ? (
+        <Panel className="mb-4 p-4 sm:p-5">
+          <h2 className="mb-4 text-base font-semibold text-brand-deep">Add vehicle</h2>
+          {vehicleForm}
+        </Panel>
+      ) : null}
+
+      {draft && draft.id ? (
+        <Dialog title="Edit vehicle" onClose={() => { if (!save.isPending) setDraft(null); }}>
+          {vehicleForm}
         </Dialog>
+      ) : null}
+
+      {vehicles.data && vehicles.data.data.length > 0 ? (
+      <div className="mb-4 rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)]">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <Field label="Search">
+            <TextInput placeholder="Name, number, model, color, driver" value={search} onChange={(event) => setSearch(event.target.value)} />
+          </Field>
+          <Field label="Fuel">
+            <SelectInput value={fuel} onChange={(event) => setFuel(event.target.value)}>
+              <option value="">All fuels</option>
+              {fuels.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </SelectInput>
+          </Field>
+          <Field label="Driver">
+            <SelectInput value={driverFilter} onChange={(event) => setDriverFilter(event.target.value)}>
+              <option value="">All drivers</option>
+              <option value="none">Unassigned</option>
+              {drivers.data?.data.map((driver) => (
+                <option key={driver.id} value={driver.id}>{driver.name}</option>
+              ))}
+            </SelectInput>
+          </Field>
+          <Field label="Insurance">
+            <SelectInput value={insuranceFilter} onChange={(event) => setInsuranceFilter(event.target.value)}>
+              <option value="">Any status</option>
+              <option value="valid">Valid</option>
+              <option value="expiring_soon">Expiring soon</option>
+              <option value="expired">Expired</option>
+              <option value="none">Not recorded</option>
+            </SelectInput>
+          </Field>
+        </div>
+        <div className="mt-3 flex items-center justify-between text-sm">
+          <p className="text-muted">{filtered.length} {filtered.length === 1 ? "vehicle" : "vehicles"}</p>
+          {filtersOn ? (
+            <button type="button" className="text-brand-deep hover:text-ink" onClick={clearFilters}>Clear filters</button>
+          ) : null}
+        </div>
+      </div>
       ) : null}
 
       {vehicles.isLoading ? <StateMessage>Loading vehicles...</StateMessage> : null}
       {vehicles.isError ? <StateMessage>{vehicles.error instanceof ApiError ? vehicles.error.message : "Could not load vehicles."}</StateMessage> : null}
-      {vehicles.data?.data.length === 0 ? <StateMessage>No vehicles yet.</StateMessage> : null}
-      {vehicles.data && vehicles.data.data.length > 0 && filtered.length === 0 ? <StateMessage>No vehicles match these filters.</StateMessage> : null}
+      {vehicles.data?.data.length === 0 && !draft ? (
+        <EmptyState
+          icon={<CarFront className="h-6 w-6" aria-hidden="true" />}
+          title="Add vehicles and track them"
+          detail="Register your fleet vehicles to monitor istimara, insurance, maintenance, EMI, fuel, and driver assignments."
+          action={<Button onClick={openAdd}>Add vehicle</Button>}
+        />
+      ) : null}
+      {vehicles.data && vehicles.data.data.length > 0 && filtered.length === 0 ? (
+        <EmptyState
+          title="No vehicles match these filters"
+          detail="Try clearing or adjusting your search filters."
+          action={<Button variant="secondary" onClick={clearFilters}>Clear filters</Button>}
+        />
+      ) : null}
       {error && !draft && !confirmId ? <p className="mb-3 text-sm text-status-danger">{error}</p> : null}
 
       <ul className="space-y-3">
@@ -826,7 +865,7 @@ function NewDriverFields({
       <div className="sm:col-span-2">
         <DocumentCapture
           kind="driver_license"
-          title="Upload Driver License / Iqama (OCR Auto-Fill)"
+          title="Upload Driver License / Iqama (Auto-Fill)"
           onRead={(fileId, fields) => {
             onChange({
               ...driver,
@@ -846,7 +885,7 @@ function NewDriverFields({
         <TextInput value={driver.name} onChange={(event) => onChange({ ...driver, name: event.target.value })} required />
       </Field>
       <Field label="Mobile">
-        <TextInput value={driver.mobile} placeholder="+966 5X XXX XXXX" onChange={(event) => onChange({ ...driver, mobile: event.target.value })} required />
+        <PhoneInput value={driver.mobile} onChange={(mobile) => onChange({ ...driver, mobile })} required />
       </Field>
       <Field label="Employee ID">
         <TextInput value={driver.employeeId} onChange={(event) => onChange({ ...driver, employeeId: event.target.value })} />
@@ -1022,8 +1061,8 @@ function LinkedDriverDetails({
         <DocumentCapture
           kind="driver_license"
           vehicleId={vehicleId}
-          title="Upload Driver License / Iqama (OCR Auto-Fill)"
-          description="Upload a driver license or Iqama (JPG, PNG, or PDF) to extract and update license/Iqama details via OCR, or click 'Edit driver manually' to enter details yourself."
+          title="Upload Driver License / Iqama (Auto-Fill)"
+          description="Upload a driver license or Iqama (JPG, PNG, or PDF) to extract and update license/Iqama details automatically, or click 'Edit driver manually' to enter details yourself."
           onRead={(fileId, fields) => {
             setEditing(true);
             setSaveMsg("");
@@ -1047,7 +1086,7 @@ function LinkedDriverDetails({
             <TextInput value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
           </Field>
           <Field label="Mobile">
-            <TextInput value={editForm.mobile} onChange={(e) => setEditForm({ ...editForm, mobile: e.target.value })} />
+            <PhoneInput value={editForm.mobile} onChange={(mobile) => setEditForm({ ...editForm, mobile })} />
           </Field>
           <Field label="Employee ID">
             <TextInput value={editForm.employeeId} onChange={(e) => setEditForm({ ...editForm, employeeId: e.target.value })} />
@@ -1094,7 +1133,7 @@ function LinkedDriverDetails({
       )}
       {saveMsg ? <p className="text-xs font-medium text-brand-deep sm:col-span-2">{saveMsg}</p> : null}
       <p className="text-xs text-muted sm:col-span-2">
-        Upload a license/Iqama above to extract fields via OCR, or click Edit driver manually to update any field directly.
+        Upload a license/Iqama above to extract fields automatically, or click Edit driver manually to update any field directly.
       </p>
     </div>
   );

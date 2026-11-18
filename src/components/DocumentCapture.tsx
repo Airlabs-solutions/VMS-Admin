@@ -32,16 +32,16 @@ export function DocumentCapture({
 
   const defaultTitle =
     kind === "driver_license"
-      ? "Driver License / Iqama OCR Scan"
+      ? "Driver License / Iqama Scan"
       : kind === "insurance"
-        ? "Insurance Policy Copy OCR Scan"
-        : "Istimara Copy OCR Scan";
+        ? "Insurance Policy Copy Scan"
+        : "Istimara Copy Scan";
 
   const defaultDesc =
     kind === "driver_license"
-      ? "Upload Driver License or Iqama (JPG, PNG, or PDF, up to 10 MB) to auto-fill driver fields via OCR. You can also enter or edit all fields manually below."
+      ? "Upload Driver License or Iqama (JPG, PNG, or PDF, up to 10 MB) to auto-fill driver fields. You can also enter or edit all fields manually below."
       : kind === "insurance"
-        ? "Upload Insurance Copy (JPG, PNG, or PDF, up to 10 MB) to auto-fill policy dates and details via OCR. You can also enter or edit all fields manually below."
+        ? "Upload Insurance Copy (JPG, PNG, or PDF, up to 10 MB) to auto-fill policy dates and details. You can also enter or edit all fields manually below."
         : "Upload a JPG, PNG, or PDF, up to 10 MB. The form stays open for manual entry if the document cannot be read.";
 
   async function onFile(file: File | null) {
@@ -75,7 +75,7 @@ export function DocumentCapture({
       setError(
         err instanceof ApiError
           ? `${err.message}. You can enter the details manually below.`
-          : "OCR could not read this document. Please enter the details manually below.",
+          : "Could not read this document automatically. Please enter the details manually below.",
       );
     } finally {
       setPending(false);
@@ -89,8 +89,8 @@ export function DocumentCapture({
           <p className="text-sm font-semibold text-ink">{title || defaultTitle}</p>
           <p className="mt-0.5 text-xs leading-5 text-muted">{description || defaultDesc}</p>
         </div>
-        <label className="inline-flex h-9 shrink-0 cursor-pointer items-center rounded-md bg-brand px-3.5 text-xs font-semibold text-ink transition-colors hover:bg-brand-strong">
-          {pending ? "Running OCR..." : buttonLabel || "Upload & Extract (OCR)"}
+        <label className="inline-flex h-9 shrink-0 cursor-pointer items-center rounded-md bg-brand px-3.5 text-xs font-semibold text-white transition-colors hover:bg-brand-strong">
+          {pending ? "Reading document..." : buttonLabel || "Upload & Auto-Fill"}
           <input
             className="sr-only"
             type="file"

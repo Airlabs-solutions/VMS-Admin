@@ -1,4 +1,4 @@
-# VMS admin
+# AxetPro Admin
 
 Company admin and super admin dashboard. Talks only to the backend API.
 

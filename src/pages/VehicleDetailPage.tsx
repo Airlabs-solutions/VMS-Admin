@@ -3,7 +3,7 @@ import { FormEvent, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { DateField } from "../components/DateField";
 import { DocumentCapture, DocumentLink } from "../components/DocumentCapture";
-import { Badge, Button, DataTable, Field, PageHeader, Panel, SelectInput, StateMessage, Tabs, TextInput } from "../components/ui";
+import { Badge, Button, DataTable, EmptyState, Field, PageHeader, Panel, SelectInput, StateMessage, Tabs, TextInput } from "../components/ui";
 import { ApiError, api } from "../lib/api";
 import { emiSchedule, monthsRemaining } from "../lib/emi";
 import { formatDate, formatKm, formatSar } from "../lib/format";
@@ -32,7 +32,7 @@ type VehicleDetail = {
   maintenance: Array<{ id: string; serviceType: string; nextDueDate: string | null; nextDueKm: number; status: Status }>;
 };
 
-const tabs = ["Overview", "Maintenance", "Istimara", "Insurance", "EMI", "Fuel", "Violations", "Trips", "Expenses", "Handovers"] as const;
+const tabs = ["Overview", "Istimara", "Insurance", "EMI", "Fuel", "Maintenance", "Violations", "Trips", "Expenses", "Handovers"] as const;
 type VehicleTab = (typeof tabs)[number];
 
 function vehicleTab(value: string | null): VehicleTab {
@@ -75,7 +75,7 @@ export function VehicleDetailPage() {
       {tab === "Violations" ? <ViolationTab vehicleId={id} /> : null}
       {tab === "Trips" ? <TripTab vehicleId={id} /> : null}
       {tab === "Expenses" ? <ExpenseTab vehicleId={id} /> : null}
-      {tab === "Handovers" ? <HandoverTab vehicleId={id} /> : null}
+      {tab === "Handovers" ? <HandoverTab vehicleId={id} currentDriver={record.currentDriver} defaultOdometerKm={record.odometerKm} /> : null}
     </div>
   );
 }
@@ -118,9 +118,9 @@ function Overview({ record }: { record: VehicleDetail }) {
         ) : <p className="mt-2 text-muted">No policy recorded.</p>}
       </Panel>
       <Panel className="p-4 text-sm">
-        <h2 className="font-semibold">Stored OCR Documents</h2>
+        <h2 className="font-semibold">Stored Documents</h2>
         {storedDocs.length === 0 ? (
-          <p className="mt-2 text-muted">No OCR documents uploaded for this vehicle yet.</p>
+          <p className="mt-2 text-muted">No documents uploaded for this vehicle yet.</p>
         ) : (
           <ul className="mt-2 space-y-1.5">
             {storedDocs.map((doc) => (
@@ -491,12 +491,252 @@ function SimpleLog({
   );
 }
 
-function HandoverTab({ vehicleId }: { vehicleId: string }) {
+type HandoverRow = {
+  id: string;
+  date: string;
+  fromDriverName: string | null;
+  toDriverName: string | null;
+  odometerKm: number;
+  fuelLevel: string;
+  notes: string;
+  fileIds: string[];
+};
+
+function HandoverTab({
+  vehicleId,
+  currentDriver,
+  defaultOdometerKm,
+}: {
+  vehicleId: string;
+  currentDriver: { id: string; name: string; mobileMasked: string } | null;
+  defaultOdometerKm: number;
+}) {
+  const client = useQueryClient();
+  const today = new Date().toISOString().slice(0, 10);
+  const [driverId, setDriverId] = useState("");
+  const [date, setDate] = useState(today);
+  const [odometerKm, setOdometerKm] = useState(String(defaultOdometerKm));
+  const [fuelLevel, setFuelLevel] = useState("Full");
+  const [notes, setNotes] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [error, setError] = useState("");
+
   const rows = useQuery({
     queryKey: ["handover", vehicleId],
-    queryFn: () => api<{ data: Array<{ id: string; date: string; odometerKm: number; fuelLevel: string; notes: string }> }>(`/vehicles/${vehicleId}/handovers`),
+    queryFn: () => api<{ data: HandoverRow[] }>(`/vehicles/${vehicleId}/handovers`),
   });
-  if (rows.isLoading) return <StateMessage>Loading handovers...</StateMessage>;
-  if (!rows.data?.data.length) return <StateMessage>No handover records yet. Assign a new driver from the Drivers page to create one.</StateMessage>;
-  return <DataTable columns={["Date", "Odometer", "Fuel", "Notes"]} rows={rows.data.data.map((row) => [formatDate(row.date as string), formatKm(row.odometerKm), row.fuelLevel, row.notes])} />;
+  const drivers = useQuery({
+    queryKey: ["driver-options"],
+    queryFn: () => api<ListResponse<{ id: string; name: string; mobileMasked: string; status: Status }>>("/drivers?limit=500"),
+  });
+
+  const availableDrivers = (drivers.data?.data ?? []).filter(
+    (d) => d.status.code === "active" && d.id !== currentDriver?.id,
+  );
+
+  const save = useMutation({
+    mutationFn: async () => {
+      if (!driverId) throw new ApiError("Select a driver to hand over the vehicle to", 400);
+      const uploadedIds = await Promise.all(
+        files.map(async (file) => {
+          const body = new FormData();
+          body.append("file", file);
+          body.append("category", "handovers");
+          body.append("entityType", "vehicle");
+          body.append("entityId", vehicleId);
+          const result = await api<{ data: { id: string } }>("/files", { method: "POST", body });
+          return result.data.id;
+        }),
+      );
+      await api(`/drivers/${driverId}/assign`, {
+        method: "POST",
+        body: {
+          vehicleId,
+          date: date || today,
+          odometerKm: Number(odometerKm || 0),
+          fuelLevel,
+          notes: notes.trim() || undefined,
+          fileIds: uploadedIds,
+        },
+      });
+    },
+    onSuccess: async () => {
+      setDriverId("");
+      setNotes("");
+      setFiles([]);
+      setError("");
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["handover", vehicleId] }),
+        client.invalidateQueries({ queryKey: ["vehicle", vehicleId] }),
+        client.invalidateQueries({ queryKey: ["vehicles"] }),
+        client.invalidateQueries({ queryKey: ["drivers"] }),
+        client.invalidateQueries({ queryKey: ["driver-options"] }),
+      ]);
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Could not record handover"),
+  });
+
+  const unassign = useMutation({
+    mutationFn: () => api(`/drivers/${currentDriver?.id}/unassign`, { method: "POST", body: { date: date || today } }),
+    onSuccess: async () => {
+      setError("");
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["handover", vehicleId] }),
+        client.invalidateQueries({ queryKey: ["vehicle", vehicleId] }),
+        client.invalidateQueries({ queryKey: ["vehicles"] }),
+        client.invalidateQueries({ queryKey: ["drivers"] }),
+        client.invalidateQueries({ queryKey: ["driver-options"] }),
+      ]);
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Could not unassign driver"),
+  });
+
+  return (
+    <div className="space-y-4">
+      <Panel className="p-4 sm:p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold text-brand-deep">Record vehicle handover</h2>
+            <p className="mt-0.5 text-xs text-muted">
+              {currentDriver
+                ? `Currently assigned to ${currentDriver.name} (${currentDriver.mobileMasked}).`
+                : "Currently unassigned. Assign a driver to start a new handover period."}
+            </p>
+          </div>
+          {currentDriver ? (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={unassign.isPending}
+              onClick={() => unassign.mutate()}
+            >
+              {unassign.isPending ? "Unassigning..." : "Unassign current driver"}
+            </Button>
+          ) : null}
+        </div>
+
+        <form
+          className="grid gap-3 md:grid-cols-2 lg:grid-cols-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setError("");
+            save.mutate();
+          }}
+        >
+          <Field label="Hand over to driver">
+            <SelectInput value={driverId} onChange={(e) => setDriverId(e.target.value)} required>
+              <option value="">Select driver</option>
+              {availableDrivers.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name} ({d.mobileMasked})
+                </option>
+              ))}
+            </SelectInput>
+          </Field>
+          <Field label="Handover date">
+            <DateField value={date} onChange={setDate} />
+          </Field>
+          <Field label="Odometer (km)">
+            <TextInput
+              type="number"
+              min={0}
+              value={odometerKm}
+              onChange={(e) => setOdometerKm(e.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Fuel level">
+            <SelectInput value={fuelLevel} onChange={(e) => setFuelLevel(e.target.value)}>
+              <option value="Full">Full</option>
+              <option value="3/4">3/4</option>
+              <option value="1/2">1/2</option>
+              <option value="1/4">1/4</option>
+              <option value="Empty">Empty</option>
+            </SelectInput>
+          </Field>
+          <div className="md:col-span-2 lg:col-span-4">
+            <Field label="Notes">
+              <TextInput
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Vehicle condition, scratches, keys, accessories..."
+              />
+            </Field>
+          </div>
+          <div className="md:col-span-2 lg:col-span-4">
+            <p className="mb-1.5 text-sm font-medium text-ink">Car pictures</p>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="inline-flex h-10 cursor-pointer items-center rounded-md border border-line bg-card px-3.5 text-sm font-medium text-ink hover:border-brand hover:bg-brand-soft">
+                Add car pictures
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="sr-only"
+                  onChange={(event) => {
+                    const picked = Array.from(event.target.files ?? []);
+                    if (picked.length) setFiles((current) => [...current, ...picked]);
+                    event.target.value = "";
+                  }}
+                />
+              </label>
+              {files.map((file, index) => (
+                <span
+                  key={`${file.name}-${file.size}-${index}`}
+                  className="inline-flex items-center gap-2 rounded-md border border-line bg-canvas px-2.5 py-1.5 text-xs text-ink"
+                >
+                  <span className="max-w-[140px] truncate">{file.name}</span>
+                  <button
+                    type="button"
+                    className="font-medium text-status-danger hover:underline"
+                    onClick={() => setFiles((current) => current.filter((_, i) => i !== index))}
+                  >
+                    Remove
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="md:col-span-2 lg:col-span-4 flex items-center gap-3">
+            <Button type="submit" disabled={save.isPending}>
+              {save.isPending ? "Saving handover..." : "Save handover"}
+            </Button>
+          </div>
+        </form>
+        <ErrorText error={error} />
+      </Panel>
+
+      {rows.isLoading ? <StateMessage>Loading handovers...</StateMessage> : null}
+      {!rows.isLoading && !rows.data?.data.length ? (
+        <EmptyState
+          title="No handover records yet"
+          detail="Record a handover above to track driver changes, odometer readings, fuel level, and car condition photos."
+        />
+      ) : null}
+      {rows.data && rows.data.data.length > 0 ? (
+        <DataTable
+          columns={["Date", "From", "To", "Odometer", "Fuel", "Notes", "Car pictures"]}
+          rows={rows.data.data.map((row) => [
+            formatDate(row.date),
+            row.fromDriverName || "Unassigned",
+            row.toDriverName || "Driver",
+            formatKm(row.odometerKm),
+            row.fuelLevel || "-",
+            row.notes || "-",
+            row.fileIds.length > 0 ? (
+              <div key={`${row.id}-files`} className="flex flex-wrap gap-2">
+                {row.fileIds.map((fid, i) => (
+                  <span key={fid} className="inline-flex items-center gap-1 text-xs">
+                    #{i + 1}: <DocumentLink id={fid} />
+                  </span>
+                ))}
+              </div>
+            ) : (
+              "-"
+            ),
+          ])}
+        />
+      ) : null}
+    </div>
+  );
 }

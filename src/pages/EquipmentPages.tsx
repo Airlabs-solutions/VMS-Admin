@@ -1,14 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { HardHat } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   Badge,
   Button,
   DataTable,
+  EmptyState,
   ErrorState,
   Field,
   PageHeader,
   Panel,
+  PhoneInput,
   SelectInput,
   StateMessage,
   Tabs,
@@ -196,7 +199,7 @@ export function EquipmentDashboardPage() {
         </Link>
         <Link
           to="/equipment/assets"
-          className="inline-flex h-10 items-center justify-center rounded-md bg-brand px-3.5 text-sm font-medium text-ink hover:bg-brand-strong"
+          className="inline-flex h-10 items-center justify-center rounded-md bg-brand px-3.5 text-sm font-medium text-white hover:bg-brand-strong"
         >
           View Equipment
         </Link>
@@ -605,6 +608,7 @@ export function EquipmentListPage() {
         </Panel>
       ) : null}
 
+      {assets.data && ((assets.data.data ?? []).length > 0 || Boolean(q || category || status)) ? (
       <Panel className="p-4">
         <div className="grid gap-3 sm:grid-cols-3">
           <TextInput
@@ -630,6 +634,7 @@ export function EquipmentListPage() {
           </SelectInput>
         </div>
       </Panel>
+      ) : null}
 
       {assets.isLoading ? (
         <StateMessage>Loading equipment...</StateMessage>
@@ -639,6 +644,20 @@ export function EquipmentListPage() {
           detail={assets.error instanceof ApiError ? assets.error.message : "Failed to load equipment list"}
           onRetry={() => void assets.refetch()}
         />
+      ) : (assets.data?.data ?? []).length === 0 ? (
+        q || category || status ? (
+          <EmptyState
+            title="No equipment matches these filters"
+            detail="Try clearing or adjusting your search filters."
+          />
+        ) : (
+          <EmptyState
+            icon={<HardHat className="h-6 w-6" aria-hidden="true" />}
+            title="Add equipment and track deployments"
+            detail="Register heavy machinery and assets to monitor operating hours, maintenance, and site mobilizations."
+            action={<Button onClick={() => setShowCreate(true)}>Add Equipment</Button>}
+          />
+        )
       ) : (
         <DataTable
           columns={["Asset Code", "Name", "Category", "Make / Model", "Serial #", "Hours / km", "Location", "Ownership", "Status"]}
@@ -1116,7 +1135,7 @@ export function EquipmentDetailPage() {
                             item.result === res
                               ? res === "fail"
                                 ? "bg-status-danger text-white"
-                                : "bg-brand text-ink"
+                                : "bg-brand text-white"
                               : "border border-line bg-card text-muted"
                           }`}
                         >
@@ -1379,9 +1398,9 @@ export function EquipmentDetailPage() {
                 />
               </Field>
               <Field label="Operator Mobile">
-                <TextInput
+                <PhoneInput
                   value={opForm.operatorMobile}
-                  onChange={(e) => setOpForm({ ...opForm, operatorMobile: e.target.value })}
+                  onChange={(operatorMobile) => setOpForm({ ...opForm, operatorMobile })}
                 />
               </Field>
               <Field label="TUV / Crane License #">
@@ -1518,7 +1537,7 @@ export function MobilizationBoardPage() {
       >
         <Link
           to="/equipment/assets"
-          className="inline-flex h-10 items-center justify-center rounded-md bg-brand px-3.5 text-sm font-medium text-ink hover:bg-brand-strong"
+          className="inline-flex h-10 items-center justify-center rounded-md bg-brand px-3.5 text-sm font-medium text-white hover:bg-brand-strong"
         >
           Mobilize from Equipment List
         </Link>

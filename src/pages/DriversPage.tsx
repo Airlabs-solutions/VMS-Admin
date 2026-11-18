@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Users } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DateField } from "../components/DateField";
 import { DocumentCapture } from "../components/DocumentCapture";
-import { Badge, Button, Field, PageHeader, SelectInput, StateMessage, TextInput } from "../components/ui";
+import { Badge, Button, EmptyState, Field, PageHeader, Panel, PhoneInput, SelectInput, StateMessage, TextInput } from "../components/ui";
 import { ApiError, api } from "../lib/api";
 import { cn } from "../lib/cn";
 import { formatDate } from "../lib/format";
@@ -257,92 +258,38 @@ export function DriversPage() {
 
   const filtersOn = Boolean(search || statusFilter || iqamaFilter || licenseFilter || vehicleFilter);
 
-  return (
-    <div>
-      <PageHeader title="Drivers">
-        <Button onClick={mode === "add" ? closeForm : openAdd}>{mode === "add" ? "Close" : "Add driver"}</Button>
-      </PageHeader>
-      <div className="mb-4 rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)]">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <Field label="Search">
-            <TextInput placeholder="Name, mobile, vehicle" value={search} onChange={(event) => setSearch(event.target.value)} />
-          </Field>
-          <Field label="Status">
-            <SelectInput value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-              <option value="">All</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </SelectInput>
-          </Field>
-          <Field label="Iqama">
-            <SelectInput value={iqamaFilter} onChange={(event) => setIqamaFilter(event.target.value)}>
-              <option value="">Any</option>
-              <option value="valid">Valid</option>
-              <option value="expiring_soon">Expiring soon</option>
-              <option value="expired">Expired</option>
-            </SelectInput>
-          </Field>
-          <Field label="License">
-            <SelectInput value={licenseFilter} onChange={(event) => setLicenseFilter(event.target.value)}>
-              <option value="">Any</option>
-              <option value="valid">Valid</option>
-              <option value="expiring_soon">Expiring soon</option>
-              <option value="expired">Expired</option>
-            </SelectInput>
-          </Field>
-          <Field label="Vehicle">
-            <SelectInput value={vehicleFilter} onChange={(event) => setVehicleFilter(event.target.value)}>
-              <option value="">All</option>
-              <option value="none">Unassigned</option>
-              {vehicles.data?.data.map((vehicle) => (
-                <option key={vehicle.id} value={vehicle.id}>{vehicle.plateNumber}</option>
-              ))}
-            </SelectInput>
-          </Field>
-        </div>
-        <div className="mt-3 flex items-center justify-between text-sm">
-          <p className="text-muted">{filtered.length} {filtered.length === 1 ? "driver" : "drivers"}</p>
-          {filtersOn ? (
-            <button type="button" className="text-brand-deep hover:text-ink" onClick={() => { setSearch(""); setStatusFilter(""); setIqamaFilter(""); setLicenseFilter(""); setVehicleFilter(""); }}>
-              Clear filters
-            </button>
-          ) : null}
-        </div>
+  const driverForm = mode ? (
+    <form onSubmit={onSubmit}>
+      {mode === "edit" && editor.isLoading ? <StateMessage>Loading driver...</StateMessage> : null}
+      {mode === "edit" ? (
+        <DriverAvatar name={form.name || editor.data?.data.name || "Driver"} photoUrl={editor.data?.data.photoUrl} />
+      ) : null}
+      <div className={mode === "edit" ? "mt-4" : ""}>
+        <DocumentCapture
+          kind="driver_license"
+          title="Upload Driver License / Iqama (Auto-Fill)"
+          onRead={(fileId, fields) => {
+            setForm((current) => ({
+              ...current,
+              name: fields.name || current.name,
+              mobile: fields.mobile || current.mobile,
+              iqamaNumber: fields.iqamaNumber || current.iqamaNumber,
+              iqamaExpiry: fields.iqamaExpiry || current.iqamaExpiry,
+              licenseNumber: fields.licenseNumber || current.licenseNumber,
+              licenseType: fields.licenseType || current.licenseType,
+              licenseExpiry: fields.licenseExpiry || current.licenseExpiry,
+              fileIds: fileId && !current.fileIds.includes(fileId) ? [...current.fileIds, fileId] : current.fileIds,
+            }));
+          }}
+        />
       </div>
-
-      {mode ? (
-        <Dialog title={mode === "edit" ? "Edit driver" : "Add driver"} onClose={closeForm}>
-        <form onSubmit={onSubmit}>
-          {mode === "edit" && editor.isLoading ? <StateMessage>Loading driver...</StateMessage> : null}
-          {mode === "edit" ? (
-            <DriverAvatar name={form.name || editor.data?.data.name || "Driver"} photoUrl={editor.data?.data.photoUrl} />
-          ) : null}
-          <div className="mt-4">
-            <DocumentCapture
-              kind="driver_license"
-              title="Upload Driver License / Iqama (OCR Auto-Fill)"
-              onRead={(fileId, fields) => {
-                setForm((current) => ({
-                  ...current,
-                  name: fields.name || current.name,
-                  mobile: fields.mobile || current.mobile,
-                  iqamaNumber: fields.iqamaNumber || current.iqamaNumber,
-                  iqamaExpiry: fields.iqamaExpiry || current.iqamaExpiry,
-                  licenseNumber: fields.licenseNumber || current.licenseNumber,
-                  licenseType: fields.licenseType || current.licenseType,
-                  licenseExpiry: fields.licenseExpiry || current.licenseExpiry,
-                  fileIds: fileId && !current.fileIds.includes(fileId) ? [...current.fileIds, fileId] : current.fileIds,
-                }));
-              }}
-            />
-          </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
             <Field label="Name">
               <TextInput className={cn(fieldErrors.name && "border-status-danger")} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
               <FieldHint message={fieldErrors.name} />
             </Field>
             <Field label="Mobile">
-              <TextInput className={cn(fieldErrors.mobile && "border-status-danger")} value={form.mobile} placeholder="Mobile number" onChange={(event) => setForm({ ...form, mobile: event.target.value })} />
+              <PhoneInput className={cn(fieldErrors.mobile && "border-status-danger")} value={form.mobile} onChange={(mobile) => setForm({ ...form, mobile })} />
               <FieldHint message={fieldErrors.mobile} />
             </Field>
             <Field label="Employee ID">
@@ -449,12 +396,93 @@ export function DriversPage() {
             <Button type="button" variant="secondary" onClick={closeForm}>Cancel</Button>
           </div>
         </form>
+  ) : null;
+
+  return (
+    <div>
+      <PageHeader title="Drivers">
+        <Button onClick={mode === "add" ? closeForm : openAdd}>{mode === "add" ? "Close Form" : "Add driver"}</Button>
+      </PageHeader>
+
+      {mode === "add" ? (
+        <Panel className="mb-4 p-4 sm:p-5">
+          <h2 className="mb-4 text-base font-semibold text-brand-deep">Add driver</h2>
+          {driverForm}
+        </Panel>
+      ) : null}
+
+      {mode === "edit" ? (
+        <Dialog title="Edit driver" onClose={closeForm}>
+          {driverForm}
         </Dialog>
+      ) : null}
+
+      {drivers.data && drivers.data.data.length > 0 ? (
+      <div className="mb-4 rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)]">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <Field label="Search">
+            <TextInput placeholder="Name, mobile, vehicle" value={search} onChange={(event) => setSearch(event.target.value)} />
+          </Field>
+          <Field label="Status">
+            <SelectInput value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </SelectInput>
+          </Field>
+          <Field label="Iqama">
+            <SelectInput value={iqamaFilter} onChange={(event) => setIqamaFilter(event.target.value)}>
+              <option value="">Any</option>
+              <option value="valid">Valid</option>
+              <option value="expiring_soon">Expiring soon</option>
+              <option value="expired">Expired</option>
+            </SelectInput>
+          </Field>
+          <Field label="License">
+            <SelectInput value={licenseFilter} onChange={(event) => setLicenseFilter(event.target.value)}>
+              <option value="">Any</option>
+              <option value="valid">Valid</option>
+              <option value="expiring_soon">Expiring soon</option>
+              <option value="expired">Expired</option>
+            </SelectInput>
+          </Field>
+          <Field label="Vehicle">
+            <SelectInput value={vehicleFilter} onChange={(event) => setVehicleFilter(event.target.value)}>
+              <option value="">All</option>
+              <option value="none">Unassigned</option>
+              {vehicles.data?.data.map((vehicle) => (
+                <option key={vehicle.id} value={vehicle.id}>{vehicle.plateNumber}</option>
+              ))}
+            </SelectInput>
+          </Field>
+        </div>
+        <div className="mt-3 flex items-center justify-between text-sm">
+          <p className="text-muted">{filtered.length} {filtered.length === 1 ? "driver" : "drivers"}</p>
+          {filtersOn ? (
+            <button type="button" className="text-brand-deep hover:text-ink" onClick={() => { setSearch(""); setStatusFilter(""); setIqamaFilter(""); setLicenseFilter(""); setVehicleFilter(""); }}>
+              Clear filters
+            </button>
+          ) : null}
+        </div>
+      </div>
       ) : null}
 
       {drivers.isLoading ? <StateMessage>Loading drivers...</StateMessage> : null}
       {drivers.isError ? <StateMessage>Could not load drivers.</StateMessage> : null}
-      {drivers.data && filtered.length === 0 ? <StateMessage>{drivers.data.data.length === 0 ? "No drivers yet." : "No drivers match these filters."}</StateMessage> : null}
+      {drivers.data && drivers.data.data.length === 0 && !mode ? (
+        <EmptyState
+          icon={<Users className="h-6 w-6" aria-hidden="true" />}
+          title="Add drivers and manage their records"
+          detail="Register drivers to track iqamas, licenses, vehicle assignments, and portal access."
+          action={<Button onClick={openAdd}>Add driver</Button>}
+        />
+      ) : null}
+      {drivers.data && drivers.data.data.length > 0 && filtered.length === 0 ? (
+        <EmptyState
+          title="No drivers match these filters"
+          detail="Try clearing or adjusting your search filters."
+        />
+      ) : null}
       <ul className="space-y-3">
         {filtered.map((driver) => (
           <li key={driver.id} className="rounded-lg border border-line bg-card p-4 shadow-[0_1px_2px_rgba(17,22,16,0.04)]">
@@ -623,7 +651,7 @@ function DriverAvatar({ name, photoUrl, size = "h-14 w-14" }: { name: string; ph
   if (photoUrl) {
     return <img src={photoUrl} alt="" className={`${size} shrink-0 rounded-md object-cover`} />;
   }
-  return <span className={`grid ${size} shrink-0 place-items-center rounded-md bg-brand text-sm font-semibold text-ink`}>{letters}</span>;
+  return <span className={`grid ${size} shrink-0 place-items-center rounded-md bg-brand-deep text-sm font-semibold text-white`}>{letters}</span>;
 }
 
 function FieldHint({ message }: { message?: string }) {

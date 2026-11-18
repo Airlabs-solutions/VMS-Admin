@@ -210,7 +210,7 @@ export function DateField({
                   aria-current={today ? "date" : undefined}
                   className={cn(
                     "h-8 rounded-md text-sm transition-colors duration-150 ease-out",
-                    active ? "bg-brand font-medium text-ink" : "hover:bg-brand-soft",
+                    active ? "bg-brand font-medium text-white" : "hover:bg-brand-soft",
                     !active && inMonth && "text-ink",
                     !active && !inMonth && "text-muted",
                     !active && today && "ring-1 ring-brand ring-inset",

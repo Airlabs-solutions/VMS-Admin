@@ -113,7 +113,7 @@ export function LoginPage() {
   return (
     <div className="grid min-h-screen place-items-center bg-canvas px-4 py-8 sm:px-5">
       <section className="relative w-full max-w-[460px] rounded-lg border border-line bg-card px-6 py-6 shadow-[0_1px_2px_rgba(28,36,52,0.05),0_8px_24px_rgba(28,36,52,0.05)] sm:px-9 sm:py-9">
-        <p className="text-[13px] font-medium tracking-[0.08em] text-brand-deep uppercase">Vehicle Management System</p>
+        <img src="/logos/logo-ivory.svg" alt="AxetPro" className="h-9 w-auto rounded-md" />
         <h1 className="mt-4 text-[30px] leading-none font-bold tracking-tight text-ink sm:text-[32px]">Sign in</h1>
         <p className="mt-3 text-[15px] leading-6 text-muted">Use your email or continue with Google</p>
 
@@ -162,7 +162,7 @@ export function LoginPage() {
             {error ? <p className="mt-3 text-[13px] leading-5 text-status-danger" role="alert">{error}</p> : null}
 
             <button
-              className="mt-4 inline-flex h-[50px] w-full items-center justify-center gap-2 rounded-md bg-brand text-[15px] font-semibold text-ink transition-colors duration-200 ease-out hover:bg-brand-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand active:bg-brand-mid disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-4 inline-flex h-[50px] w-full items-center justify-center gap-2 rounded-md bg-brand text-[15px] font-semibold text-white transition-colors duration-200 ease-out hover:bg-brand-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand active:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60"
               disabled={pending}
             >
               {pending && action === "otp" ? <Spinner /> : null}
@@ -193,7 +193,7 @@ export function LoginPage() {
             </div>
             {error ? <p className="mt-3 text-[13px] leading-5 text-status-danger" role="alert">{error}</p> : null}
             <button
-              className="mt-4 inline-flex h-[50px] w-full items-center justify-center rounded-md bg-brand text-[15px] font-semibold text-ink transition-colors duration-200 ease-out hover:bg-brand-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand active:bg-brand-mid disabled:cursor-not-allowed disabled:opacity-60"
+              className="mt-4 inline-flex h-[50px] w-full items-center justify-center rounded-md bg-brand text-[15px] font-semibold text-white transition-colors duration-200 ease-out hover:bg-brand-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand active:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60"
               disabled={pending || code.length !== 6}
             >
               {pending ? "Checking code..." : "Verify & Sign In"}
